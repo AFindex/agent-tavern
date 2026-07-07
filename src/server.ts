@@ -4,6 +4,7 @@ import { cwd } from "node:process";
 
 import { AgentRuntime } from "./agent/pipeline.js";
 import { MockModelClient } from "./agent/model.js";
+import { nowIso } from "./lib/ids.js";
 import { readJsonFile } from "./lib/json.js";
 import { normalizeCharacterCard } from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
@@ -14,8 +15,10 @@ import type {
   ConversationConfig,
   ConversationEvent,
   ConversationState,
+  JsonValue,
   Lorebook,
   LorebookEntry,
+  Settings,
 } from "./types.js";
 
 interface ConversationSnapshot {
@@ -48,6 +51,27 @@ interface CreateConversationBody {
 
 interface SendMessageBody {
   text?: string;
+}
+
+interface UpdateConfigBody {
+  title?: string;
+  characterId?: string;
+  lorebookIds?: string[];
+}
+
+interface UpdateStateBody {
+  summary?: string;
+  currentScene?: string;
+  variables?: Record<string, JsonValue>;
+}
+
+interface UpdateLorebookBody {
+  entries?: LorebookEntry[];
+}
+
+interface UpdateSettingsBody {
+  defaultModel?: ConversationConfig["model"];
+  providers?: Settings["providers"];
 }
 
 const store = new WorkspaceStore(cwd());
@@ -91,6 +115,27 @@ async function route(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/settings") {
+    sendJson(response, 200, await store.loadSettings());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/settings") {
+    const body = await readBody<UpdateSettingsBody>(request);
+    const settings = await store.loadSettings();
+
+    if (body.defaultModel !== undefined) {
+      settings.defaultModel = body.defaultModel;
+    }
+    if (body.providers !== undefined) {
+      settings.providers = body.providers;
+    }
+
+    await store.saveSettings(settings);
+    sendJson(response, 200, settings);
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/demo") {
     sendJson(response, 200, await runDemoTurn());
     return;
@@ -122,11 +167,14 @@ async function route(
       await store.loadLorebook(lorebookId);
     }
 
+    const settings = await store.loadSettings();
     const config = await store.createConversation({
       title: body.title?.trim() || "Conversation",
       characterId,
       lorebookIds,
     });
+    config.model = settings.defaultModel;
+    await store.saveConversationConfig(config);
 
     sendJson(response, 200, {
       snapshot: await loadSnapshot(config.id),
@@ -153,6 +201,74 @@ async function route(
     sendJson(response, 200, {
       result,
       snapshot: await loadSnapshot(sendMatch[1]),
+      overview: await loadOverview(),
+    });
+    return;
+  }
+
+  const configMatch = url.pathname.match(
+    /^\/api\/conversations\/([^/]+)\/config$/,
+  );
+  if (request.method === "PATCH" && configMatch) {
+    const body = await readBody<UpdateConfigBody>(request);
+    const config = await store.loadConversationConfig(configMatch[1]);
+
+    if (body.title !== undefined) {
+      config.title = body.title.trim() || config.title;
+    }
+    if (body.characterId !== undefined) {
+      config.characterId = body.characterId;
+    }
+    if (body.lorebookIds !== undefined) {
+      config.lorebookIds = body.lorebookIds;
+    }
+
+    await store.saveConversationConfig(config);
+    sendJson(response, 200, {
+      snapshot: await loadSnapshot(config.id),
+      overview: await loadOverview(),
+    });
+    return;
+  }
+
+  const stateMatch = url.pathname.match(
+    /^\/api\/conversations\/([^/]+)\/state$/,
+  );
+  if (request.method === "PATCH" && stateMatch) {
+    const body = await readBody<UpdateStateBody>(request);
+    const state = await store.loadConversationState(stateMatch[1]);
+
+    if (body.summary !== undefined) {
+      state.summary = body.summary;
+    }
+    if (body.currentScene !== undefined) {
+      state.currentScene = body.currentScene;
+    }
+    if (body.variables !== undefined) {
+      state.variables = body.variables;
+    }
+    state.updatedAt = nowIso();
+
+    await store.saveConversationState(stateMatch[1], state);
+    sendJson(response, 200, {
+      snapshot: await loadSnapshot(stateMatch[1]),
+      overview: await loadOverview(),
+    });
+    return;
+  }
+
+  const lorebookMatch = url.pathname.match(/^\/api\/lorebooks\/([^/]+)$/);
+  if (request.method === "PATCH" && lorebookMatch) {
+    const body = await readBody<UpdateLorebookBody>(request);
+    const lorebook = await store.loadLorebook(lorebookMatch[1]);
+
+    if (body.entries !== undefined) {
+      lorebook.entries = body.entries;
+    }
+
+    await store.saveLorebook(lorebook);
+    sendJson(response, 200, {
+      lorebook,
       overview: await loadOverview(),
     });
     return;
@@ -206,11 +322,14 @@ async function runDemoTurn(): Promise<{
   await store.saveCharacter(character);
   await store.saveLorebook(lorebook);
 
+  const settings = await store.loadSettings();
   const config = await store.createConversation({
     title: "Demo Conversation",
     characterId: character.id,
     lorebookIds: [lorebook.id],
   });
+  config.model = settings.defaultModel;
+  await store.saveConversationConfig(config);
 
   await runtime.handleUserInput({
     conversationId: config.id,

@@ -54,6 +54,17 @@ export interface ModelConfig {
   name: string;
 }
 
+export interface ProviderConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+export interface Settings {
+  defaultModel: ModelConfig;
+  providers: Record<string, ProviderConfig>;
+}
+
 export interface ConversationConfig {
   id: string;
   title: string;

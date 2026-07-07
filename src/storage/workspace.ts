@@ -14,6 +14,7 @@ import type {
   ConversationEvent,
   ConversationState,
   Lorebook,
+  Settings,
 } from "../types.js";
 import { createConversationId, createEventId, nowIso } from "../lib/ids.js";
 import { stringifyJson } from "../lib/json.js";
@@ -75,6 +76,31 @@ export class WorkspaceStore {
       stringifyJson(lorebook),
       "utf8",
     );
+  }
+
+  async loadSettings(): Promise<Settings> {
+    await this.ensureInitialized();
+    try {
+      const raw = await readFile(this.settingsPath(), "utf8");
+      return JSON.parse(raw) as Settings;
+    } catch {
+      return {
+        defaultModel: { provider: "mock", name: "mock-story-model" },
+        providers: {
+          pi: {},
+          "openai-compatible": {},
+        },
+      };
+    }
+  }
+
+  async saveSettings(settings: Settings): Promise<void> {
+    await this.ensureInitialized();
+    await writeFile(this.settingsPath(), stringifyJson(settings), "utf8");
+  }
+
+  private settingsPath(): string {
+    return path.join(this.dataDir, "settings.json");
   }
 
   async loadLorebook(id: string): Promise<Lorebook> {

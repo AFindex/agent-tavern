@@ -5,8 +5,10 @@ import type {
   ConversationConfig,
   ConversationEvent,
   ConversationState,
+  JsonValue,
   Lorebook,
   LorebookEntry,
+  Settings,
 } from "../types";
 
 export interface Overview {
@@ -88,6 +90,57 @@ export async function runDemo(): Promise<{
   overview: Overview;
 }> {
   return request("/api/demo", { method: "POST" });
+}
+
+export async function updateConversationConfig(
+  conversationId: string,
+  input: {
+    title?: string;
+    characterId?: string;
+    lorebookIds?: string[];
+  },
+): Promise<{ snapshot: ConversationSnapshot; overview: Overview }> {
+  return request(`/api/conversations/${conversationId}/config`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateConversationState(
+  conversationId: string,
+  input: {
+    summary?: string;
+    currentScene?: string;
+    variables?: Record<string, JsonValue>;
+  },
+): Promise<{ snapshot: ConversationSnapshot; overview: Overview }> {
+  return request(`/api/conversations/${conversationId}/state`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateLorebook(
+  lorebookId: string,
+  input: { entries?: LorebookEntry[] },
+): Promise<{ lorebook: Lorebook; overview: Overview }> {
+  return request(`/api/lorebooks/${lorebookId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchSettings(): Promise<Settings> {
+  return request<Settings>("/api/settings");
+}
+
+export async function updateSettings(
+  input: Partial<Settings>,
+): Promise<Settings> {
+  return request("/api/settings", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
