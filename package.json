@@ -8,6 +8,7 @@
     "api": "tsx src/server.ts",
     "web": "vite --host 127.0.0.1",
     "dev": "concurrently -k -n api,web -c cyan,green \"npm:api\" \"npm:web\"",
+    "dev:stop": "node scripts/stop-dev-ports.mjs",
     "demo": "tsx src/cli.ts demo",
     "send": "tsx src/cli.ts send",
     "conversation:new": "tsx src/cli.ts new-conversation",

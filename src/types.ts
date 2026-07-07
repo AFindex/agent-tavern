@@ -49,8 +49,20 @@ export interface Lorebook {
   source: AssetSource;
 }
 
+export type ModelProvider =
+  | "mock"
+  | "pi"
+  | "deepseek"
+  | "kimi"
+  | "openai-compatible";
+
+export type ResponseFormatType = "text" | "json_object";
+export type ThinkingType = "enabled" | "disabled";
+export type ReasoningEffort = "high" | "max";
+export type ToolChoiceMode = "none" | "auto" | "required";
+
 export interface ModelConfig {
-  provider: "mock" | "pi" | "openai-compatible";
+  provider: ModelProvider;
   name: string;
 }
 
@@ -58,11 +70,55 @@ export interface ProviderConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  maxCompletionTokens?: number;
+  responseFormat?: ResponseFormatType;
+  stream?: boolean;
+  includeUsage?: boolean;
+  stopSequences?: string[];
+  timeoutMs?: number;
+  toolChoice?: ToolChoiceMode;
+  thinking?: ThinkingType;
+  reasoningEffort?: ReasoningEffort;
+  thinkingKeep?: "all";
+  promptCacheKey?: string;
+  safetyIdentifier?: string;
+  notes?: string;
+}
+
+export interface GenerationSettings {
+  temperature: number;
+  topP: number;
+  maxOutputTokens: number;
+  responseFormat: ResponseFormatType;
+  stream: boolean;
+  stopSequences: string[];
+}
+
+export interface AgentSettings {
+  recentMessageLimit: number;
+  maxLoreEntries: number;
+  storePromptTrace: boolean;
+  validationEnabled: boolean;
+  maxOutputChars: number;
+  autoUpdateState: boolean;
+  summaryMaxChars: number;
+}
+
+export interface WorkspaceSettings {
+  eventPreviewLimit: number;
+  redactApiKeys: boolean;
+  defaultConversationTitle: string;
 }
 
 export interface Settings {
   defaultModel: ModelConfig;
   providers: Record<string, ProviderConfig>;
+  generation: GenerationSettings;
+  agent: AgentSettings;
+  workspace: WorkspaceSettings;
 }
 
 export interface ConversationConfig {

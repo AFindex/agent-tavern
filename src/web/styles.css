@@ -418,7 +418,7 @@ input:disabled {
 
 .chat-panel {
   display: grid;
-  grid-template-rows: 44px auto minmax(0, 1fr) auto;
+  grid-template-rows: 46px auto minmax(0, 1fr) auto;
   background: var(--bg);
 }
 
@@ -433,6 +433,7 @@ input:disabled {
 .chat-head-main {
   display: grid;
   gap: 1px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -447,6 +448,36 @@ input:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.model-switcher {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.8fr) minmax(108px, 1.2fr);
+  gap: 6px;
+  width: min(340px, 56%);
+  min-width: 188px;
+  margin-left: auto;
+}
+
+.model-switcher select,
+.model-switcher input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  outline: none;
+}
+
+.model-switcher select:focus,
+.model-switcher input:focus {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .error-line {
@@ -909,6 +940,11 @@ button:has(.lucide-loader-2) svg,
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
 
+.settings-panel-wide {
+  width: min(1180px, 98vw);
+  max-height: 90vh;
+}
+
 .settings-head {
   display: flex;
   align-items: center;
@@ -919,8 +955,17 @@ button:has(.lucide-loader-2) svg,
 }
 
 .settings-head strong {
+  display: block;
   font-size: 14px;
   color: var(--text);
+}
+
+.settings-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .settings-body {
@@ -929,8 +974,24 @@ button:has(.lucide-loader-2) svg,
   padding: 10px 12px;
 }
 
+.settings-body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+  align-content: start;
+}
+
 .settings-section {
   margin-bottom: 14px;
+}
+
+.settings-section-full {
+  grid-column: 1 / -1;
+}
+
+.settings-section.dense {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .settings-section:last-child {
@@ -944,6 +1005,91 @@ button:has(.lucide-loader-2) svg,
 
 .settings-section .field {
   margin-bottom: 7px;
+}
+
+.field.wide {
+  grid-template-columns: 62px minmax(0, 1fr);
+}
+
+.settings-grid {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.settings-grid.three {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-basics-grid {
+  grid-template-columns: 1fr;
+}
+
+.settings-grid-span {
+  grid-column: span 2;
+}
+
+.settings-grid-full {
+  grid-column: 1 / -1;
+}
+
+.provider-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.provider-tab {
+  height: 28px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-2);
+}
+
+.toggle-field {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.toggle-field input {
+  justify-self: start;
+  width: 32px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.settings-note {
+  margin-top: 7px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .settings-foot {
@@ -964,6 +1110,10 @@ button:has(.lucide-loader-2) svg,
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 220px minmax(320px, 1fr);
+  }
+
+  .settings-body-grid {
+    grid-template-columns: 1fr;
   }
 
   .right-panel {

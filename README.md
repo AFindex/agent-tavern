@@ -8,7 +8,7 @@ This first slice intentionally avoids databases, ORMs, and vector stores. It use
 - JSON files for imported assets
 - Per-conversation workspace folders
 - JSONL event logs
-- A mock model client so the pipeline can run without API keys
+- A runtime model client for Mock, DeepSeek, Kimi, Pi, and OpenAI-compatible APIs
 
 ## Quick Start
 
@@ -33,6 +33,27 @@ The API defaults to `http://127.0.0.1:8787` and the Vite UI defaults to `http://
 ```bash
 npm run web -- --port 5174
 ```
+
+If a previous local dev server is still holding the ports, run:
+
+```bash
+npm run dev:stop
+```
+
+## Model Providers
+
+The settings panel stores provider config locally in `data/settings.json`. You can
+also use environment variables instead of pasting keys into the UI:
+
+```bash
+DEEPSEEK_API_KEY=...
+MOONSHOT_API_KEY=... # or KIMI_API_KEY
+OPENAI_API_KEY=...   # fallback for Pi/OpenAI-compatible
+```
+
+The chat header has a compact provider/model switcher for the active
+conversation. New conversations start from the default provider/model in
+settings.
 
 CLI helpers:
 

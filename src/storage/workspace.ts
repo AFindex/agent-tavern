@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { createConversationId, createEventId, nowIso } from "../lib/ids.js";
 import { stringifyJson } from "../lib/json.js";
+import { normalizeSettings } from "../settings/defaults.js";
 
 export interface CreateConversationInput {
   title?: string;
@@ -82,21 +83,15 @@ export class WorkspaceStore {
     await this.ensureInitialized();
     try {
       const raw = await readFile(this.settingsPath(), "utf8");
-      return JSON.parse(raw) as Settings;
+      return normalizeSettings(JSON.parse(raw));
     } catch {
-      return {
-        defaultModel: { provider: "mock", name: "mock-story-model" },
-        providers: {
-          pi: {},
-          "openai-compatible": {},
-        },
-      };
+      return normalizeSettings(null);
     }
   }
 
   async saveSettings(settings: Settings): Promise<void> {
     await this.ensureInitialized();
-    await writeFile(this.settingsPath(), stringifyJson(settings), "utf8");
+    await writeFile(this.settingsPath(), stringifyJson(normalizeSettings(settings)), "utf8");
   }
 
   private settingsPath(): string {
@@ -157,7 +152,7 @@ export class WorkspaceStore {
 
   async loadConversationConfig(id: string): Promise<ConversationConfig> {
     const raw = await readFile(this.configPath(id), "utf8");
-    return JSON.parse(raw) as ConversationConfig;
+    return normalizeConversationConfig(JSON.parse(raw) as Partial<ConversationConfig>);
   }
 
   async listConversationConfigs(): Promise<ConversationConfig[]> {
@@ -305,4 +300,42 @@ async function listJsonFiles(dir: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+function normalizeConversationConfig(
+  value: Partial<ConversationConfig>,
+): ConversationConfig {
+  const now = nowIso();
+  const provider = isModelProvider(value.model?.provider)
+    ? value.model.provider
+    : "mock";
+  const modelName =
+    typeof value.model?.name === "string" && value.model.name.length > 0
+      ? value.model.name
+      : "mock-story-model";
+
+  return {
+    id: value.id ?? "",
+    title: value.title ?? "Untitled Conversation",
+    characterId: value.characterId ?? "",
+    lorebookIds: Array.isArray(value.lorebookIds) ? value.lorebookIds : [],
+    model: {
+      provider,
+      name: modelName,
+    },
+    createdAt: value.createdAt ?? now,
+    updatedAt: value.updatedAt ?? value.createdAt ?? now,
+  };
+}
+
+function isModelProvider(
+  value: unknown,
+): value is ConversationConfig["model"]["provider"] {
+  return (
+    value === "mock" ||
+    value === "pi" ||
+    value === "deepseek" ||
+    value === "kimi" ||
+    value === "openai-compatible"
+  );
 }

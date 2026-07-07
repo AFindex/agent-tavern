@@ -20,6 +20,7 @@ export class AgentRuntime {
   async handleUserInput(input: AgentTurnInput): Promise<AgentTurnResult> {
     const config = await this.store.loadConversationConfig(input.conversationId);
     const state = await this.store.loadConversationState(input.conversationId);
+    const settings = await this.store.loadSettings();
     const character = await this.store.loadCharacter(config.characterId);
     const lorebooks = await Promise.all(
       config.lorebookIds.map((id) => this.store.loadLorebook(id)),
@@ -31,14 +32,14 @@ export class AgentRuntime {
 
     const recentMessages = await this.store.loadRecentMessages(
       input.conversationId,
-      12,
+      settings.agent.recentMessageLimit,
     );
     const recentMessageText = recentMessages.map((message) => message.content);
     const loreEntries = matchLoreEntries(
       lorebooks,
       input.text,
       recentMessageText,
-    );
+    ).slice(0, settings.agent.maxLoreEntries);
     const context: RetrievedContext = {
       character,
       loreEntries,
@@ -47,8 +48,9 @@ export class AgentRuntime {
     const prompt = composePrompt(context, state, input.text);
 
     await this.store.appendEvent(input.conversationId, "pipeline_trace", {
+      model: config.model,
       matchedLoreEntryIds: loreEntries.map((entry) => entry.id),
-      prompt,
+      prompt: settings.agent.storePromptTrace ? prompt : "[disabled]",
     });
 
     const draft = await this.model.generate({
@@ -58,8 +60,12 @@ export class AgentRuntime {
       matchedLoreEntries: loreEntries,
       prompt,
       userInput: input.text,
+      model: config.model,
+      settings,
     });
-    const validation = validateOutput(draft.content);
+    const validation = settings.agent.validationEnabled
+      ? validateOutput(draft.content, settings.agent.maxOutputChars)
+      : { passed: true, issues: [] };
     const output = validation.passed
       ? draft.content
       : fallbackOutput(character.name, validation);
@@ -68,14 +74,23 @@ export class AgentRuntime {
       content: output,
     });
 
-    const nextState = updateState(state, input.text, output);
-    await this.store.saveConversationState(input.conversationId, nextState);
+    const nextState = updateState(
+      state,
+      input.text,
+      output,
+      settings.agent.summaryMaxChars,
+    );
+    if (settings.agent.autoUpdateState) {
+      await this.store.saveConversationState(input.conversationId, nextState);
+    }
     await this.store.saveConversationConfig(config);
-    await this.store.appendEvent(input.conversationId, "state_update", {
-      turnCount: nextState.turnCount,
-      summary: nextState.summary,
-      currentScene: nextState.currentScene,
-    });
+    if (settings.agent.autoUpdateState) {
+      await this.store.appendEvent(input.conversationId, "state_update", {
+        turnCount: nextState.turnCount,
+        summary: nextState.summary,
+        currentScene: nextState.currentScene,
+      });
+    }
 
     return {
       conversationId: input.conversationId,
@@ -112,7 +127,10 @@ export function composePrompt(
   ].join("\n\n");
 }
 
-export function validateOutput(content: string): ValidationResult {
+export function validateOutput(
+  content: string,
+  maxOutputChars = 4000,
+): ValidationResult {
   const issues: string[] = [];
 
   if (content.trim().length === 0) {
@@ -123,7 +141,7 @@ export function validateOutput(content: string): ValidationResult {
     issues.push("Output appears to expose hidden prompt material.");
   }
 
-  if (content.length > 4000) {
+  if (content.length > maxOutputChars) {
     issues.push("Output is longer than the MVP limit.");
   }
 
@@ -143,10 +161,17 @@ function updateState(
   state: ConversationState,
   userInput: string,
   output: string,
+  summaryMaxChars: number,
 ): ConversationState {
   const turnCount = state.turnCount + 1;
   const currentScene = inferScene(state.currentScene, userInput);
-  const summary = summarizeTurn(state.summary, turnCount, userInput, output);
+  const summary = summarizeTurn(
+    state.summary,
+    turnCount,
+    userInput,
+    output,
+    summaryMaxChars,
+  );
   const variables: Record<string, JsonValue> = {
     ...state.variables,
     last_user_input: userInput,
@@ -181,6 +206,7 @@ function summarizeTurn(
   turnCount: number,
   userInput: string,
   output: string,
+  maxLength: number,
 ): string {
   const line = `Turn ${turnCount}: user=${truncate(userInput, 120)} assistant=${truncate(
     output,
@@ -191,7 +217,7 @@ function summarizeTurn(
     return line;
   }
 
-  return truncate(`${previousSummary}\n${line}`, 1200);
+  return truncate(`${previousSummary}\n${line}`, maxLength);
 }
 
 function truncate(value: string, maxLength: number): string {

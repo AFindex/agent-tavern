@@ -98,6 +98,7 @@ export async function updateConversationConfig(
     title?: string;
     characterId?: string;
     lorebookIds?: string[];
+    model?: ConversationConfig["model"];
   },
 ): Promise<{ snapshot: ConversationSnapshot; overview: Overview }> {
   return request(`/api/conversations/${conversationId}/config`, {

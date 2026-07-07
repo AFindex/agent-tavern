@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
-import { cwd } from "node:process";
+import { cwd, exit } from "node:process";
 
 import { AgentRuntime } from "./agent/pipeline.js";
-import { MockModelClient } from "./agent/model.js";
+import { RuntimeModelClient } from "./agent/model.js";
 import { nowIso } from "./lib/ids.js";
 import { readJsonFile } from "./lib/json.js";
+import { normalizeSettings } from "./settings/defaults.js";
 import { normalizeCharacterCard } from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
 import { WorkspaceStore } from "./storage/workspace.js";
@@ -57,6 +58,7 @@ interface UpdateConfigBody {
   title?: string;
   characterId?: string;
   lorebookIds?: string[];
+  model?: ConversationConfig["model"];
 }
 
 interface UpdateStateBody {
@@ -72,10 +74,13 @@ interface UpdateLorebookBody {
 interface UpdateSettingsBody {
   defaultModel?: ConversationConfig["model"];
   providers?: Settings["providers"];
+  generation?: Settings["generation"];
+  agent?: Settings["agent"];
+  workspace?: Settings["workspace"];
 }
 
 const store = new WorkspaceStore(cwd());
-const runtime = new AgentRuntime(store, new MockModelClient());
+const runtime = new AgentRuntime(store, new RuntimeModelClient());
 const port = Number(process.env.PORT ?? 8787);
 
 const server = createServer(async (request, response) => {
@@ -85,6 +90,17 @@ const server = createServer(async (request, response) => {
     const message = error instanceof Error ? error.message : String(error);
     sendJson(response, 500, { error: message });
   }
+});
+
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(
+      `API port ${port} is already in use. Run "npm run dev:stop" to clear local dev servers, or set PORT to another value.`,
+    );
+    exit(1);
+  }
+
+  throw error;
 });
 
 server.listen(port, "127.0.0.1", () => {
@@ -123,16 +139,18 @@ async function route(
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const body = await readBody<UpdateSettingsBody>(request);
     const settings = await store.loadSettings();
+    const nextSettings = normalizeSettings({
+      ...settings,
+      ...body,
+      defaultModel: body.defaultModel ?? settings.defaultModel,
+      providers: body.providers ?? settings.providers,
+      generation: body.generation ?? settings.generation,
+      agent: body.agent ?? settings.agent,
+      workspace: body.workspace ?? settings.workspace,
+    });
 
-    if (body.defaultModel !== undefined) {
-      settings.defaultModel = body.defaultModel;
-    }
-    if (body.providers !== undefined) {
-      settings.providers = body.providers;
-    }
-
-    await store.saveSettings(settings);
-    sendJson(response, 200, settings);
+    await store.saveSettings(nextSettings);
+    sendJson(response, 200, nextSettings);
     return;
   }
 
@@ -169,7 +187,7 @@ async function route(
 
     const settings = await store.loadSettings();
     const config = await store.createConversation({
-      title: body.title?.trim() || "Conversation",
+      title: body.title?.trim() || settings.workspace.defaultConversationTitle,
       characterId,
       lorebookIds,
     });
@@ -221,6 +239,9 @@ async function route(
     }
     if (body.lorebookIds !== undefined) {
       config.lorebookIds = body.lorebookIds;
+    }
+    if (body.model !== undefined) {
+      config.model = body.model;
     }
 
     await store.saveConversationConfig(config);
@@ -286,9 +307,11 @@ async function loadOverview(): Promise<OverviewResponse> {
 }
 
 async function loadSnapshot(conversationId: string): Promise<ConversationSnapshot> {
+  const settings = await store.loadSettings();
   const config = await store.loadConversationConfig(conversationId);
   const state = await store.loadConversationState(conversationId);
-  const events = await store.loadEvents(conversationId);
+  const allEvents = await store.loadEvents(conversationId);
+  const events = allEvents.slice(-settings.workspace.eventPreviewLimit);
   const messages = await store.loadRecentMessages(conversationId, 80);
   const character = await store.loadCharacter(config.characterId);
   const lorebooks = await Promise.all(
@@ -302,7 +325,7 @@ async function loadSnapshot(conversationId: string): Promise<ConversationSnapsho
     messages,
     character,
     lorebooks,
-    matchedLoreEntries: resolveMatchedLoreEntries(events, lorebooks),
+    matchedLoreEntries: resolveMatchedLoreEntries(allEvents, lorebooks),
     workspacePath: store.conversationDir(conversationId),
   };
 }
@@ -372,7 +395,7 @@ function sendJson(
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
     "access-control-allow-headers": "content-type",
   });
 

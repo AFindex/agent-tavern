@@ -18,7 +18,16 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
 
-import type { ConversationEvent, JsonValue, Lorebook, LorebookEntry, Settings as SettingsType } from "../types";
+import { DEFAULT_SETTINGS, PROVIDER_PRESETS, getProviderPreset } from "../settings/defaults";
+import type {
+  ConversationEvent,
+  JsonValue,
+  Lorebook,
+  LorebookEntry,
+  ModelProvider,
+  ProviderConfig,
+  Settings as SettingsType,
+} from "../types";
 import {
   createConversation,
   fetchConversation,
@@ -45,17 +54,10 @@ type BusyKey =
   | "import-character"
   | "import-lorebook"
   | "update-config"
+  | "update-model"
   | "update-state"
   | "update-lorebook"
   | "update-settings";
-
-const DEFAULT_SETTINGS: SettingsType = {
-  defaultModel: { provider: "mock", name: "mock-story-model" },
-  providers: {
-    pi: {},
-    "openai-compatible": {},
-  },
-};
 
 export function App() {
   const [overview, setOverview] = useState<Overview>({
@@ -73,6 +75,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
   const [settingsDraft, setSettingsDraft] = useState<SettingsType>(DEFAULT_SETTINGS);
+  const [quickModelDraft, setQuickModelDraft] = useState("");
   const [newConversationTitle, setNewConversationTitle] = useState("新会话");
   const [newCharacterId, setNewCharacterId] = useState("");
   const [newLorebookIds, setNewLorebookIds] = useState<string[]>([]);
@@ -115,6 +118,14 @@ export function App() {
       setExpandedLorebooks(expanded);
     }
   }, [snapshot?.config.id]);
+
+  useEffect(() => {
+    setQuickModelDraft(snapshot?.config.model.name ?? "");
+  }, [
+    snapshot?.config.id,
+    snapshot?.config.model.provider,
+    snapshot?.config.model.name,
+  ]);
 
   useEffect(() => {
     setLorebookDrafts((drafts) => {
@@ -272,6 +283,48 @@ export function App() {
     });
   }
 
+  async function handleSwitchConversationModel(
+    provider: ModelProvider,
+    modelName?: string,
+  ) {
+    if (!activeConversationId || !snapshot) return;
+
+    const preset = getProviderPreset(provider);
+    const providerConfig = settings.providers[provider] ?? {};
+    const requestedModel = modelName?.trim();
+    const configuredModel = providerConfig.model?.trim();
+    const presetModel = preset?.defaultModel.trim();
+    const nextModel =
+      requestedModel && requestedModel.length > 0
+        ? requestedModel
+        : configuredModel && configuredModel.length > 0
+          ? configuredModel
+          : presetModel && presetModel.length > 0
+            ? presetModel
+            : provider === snapshot.config.model.provider
+              ? snapshot.config.model.name
+              : "";
+
+    await runTask("update-model", async () => {
+      const response = await updateConversationConfig(activeConversationId, {
+        model: {
+          provider,
+          name: nextModel,
+        },
+      });
+      setOverview(response.overview);
+      setSnapshot(response.snapshot);
+      setQuickModelDraft(response.snapshot.config.model.name);
+    });
+  }
+
+  function commitQuickModelDraft() {
+    const nextModel = quickModelDraft.trim();
+    if (!snapshot || nextModel.length === 0) return;
+    if (nextModel === snapshot.config.model.name) return;
+    void handleSwitchConversationModel(currentModelProvider, nextModel);
+  }
+
   async function handleSaveLorebook(lorebookId: string) {
     const draft = lorebookDrafts[lorebookId];
     if (!draft) return;
@@ -288,10 +341,7 @@ export function App() {
 
   async function handleSaveSettings() {
     await runTask("update-settings", async () => {
-      const saved = await updateSettings({
-        defaultModel: settingsDraft.defaultModel,
-        providers: settingsDraft.providers,
-      });
+      const saved = await updateSettings(settingsDraft);
       setSettings(saved);
       setSettingsDraft(saved);
       setShowSettings(false);
@@ -336,6 +386,16 @@ export function App() {
     if (lastMatchedLore.length > 0) return lastMatchedLore;
     return snapshot?.matchedLoreEntries ?? [];
   }, [lastMatchedLore, snapshot?.matchedLoreEntries]);
+
+  const currentModelProvider =
+    snapshot?.config.model.provider ?? settings.defaultModel.provider;
+  const currentModelPreset = getProviderPreset(currentModelProvider);
+  const currentModelOptions = currentModelPreset?.models ?? [];
+  const currentModelName =
+    snapshot?.config.model.name ??
+    settings.providers[currentModelProvider]?.model ??
+    currentModelPreset?.defaultModel ??
+    "";
 
   const groupedConversations = useMemo(() => {
     const characterMap = new Map(overview.characters.map((c) => [c.id, c]));
@@ -582,6 +642,66 @@ export function App() {
             <strong>{snapshot?.character.name ?? "未选择角色"}</strong>
             <span>{snapshot?.config.title ?? "未选择会话"}</span>
           </div>
+          {snapshot && (
+            <div className="model-switcher">
+              <select
+                value={currentModelProvider}
+                aria-label="AI provider"
+                title="AI provider"
+                disabled={busy !== null}
+                onChange={(event) =>
+                  void handleSwitchConversationModel(
+                    event.target.value as ModelProvider,
+                  )
+                }
+              >
+                {PROVIDER_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+              {currentModelOptions.length > 0 ? (
+                <select
+                  value={currentModelName}
+                  aria-label="AI model"
+                  title={currentModelName}
+                  disabled={busy !== null}
+                  onChange={(event) =>
+                    void handleSwitchConversationModel(
+                      currentModelProvider,
+                      event.target.value,
+                    )
+                  }
+                >
+                  {currentModelName.length > 0 &&
+                    !currentModelOptions.includes(currentModelName) && (
+                      <option value={currentModelName}>{currentModelName}</option>
+                    )}
+                  {currentModelOptions.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={quickModelDraft}
+                  aria-label="AI model"
+                  title={quickModelDraft}
+                  disabled={busy !== null}
+                  onChange={(event) => setQuickModelDraft(event.target.value)}
+                  onBlur={commitQuickModelDraft}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              )}
+            </div>
+          )}
         </header>
 
         {error && <div className="error-line">{error}</div>}
@@ -833,7 +953,7 @@ export function App() {
       </aside>
 
       {showSettings && (
-        <SettingsPanel
+        <RuntimeSettingsPanel
           draft={settingsDraft}
           onChange={setSettingsDraft}
           onSave={handleSaveSettings}
@@ -980,6 +1100,642 @@ function SettingsPanel(props: {
       </div>
     </div>
   );
+}
+
+function RuntimeSettingsPanel(props: {
+  draft: SettingsType;
+  onChange: (draft: SettingsType) => void;
+  onSave: () => void;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  const activeProvider = props.draft.defaultModel.provider;
+  const activePreset = getProviderPreset(activeProvider);
+  const activeConfig = props.draft.providers[activeProvider] ?? {};
+
+  function updateDefaultModel(patch: Partial<SettingsType["defaultModel"]>) {
+    props.onChange({
+      ...props.draft,
+      defaultModel: {
+        ...props.draft.defaultModel,
+        ...patch,
+      },
+    });
+  }
+
+  function updateProvider(name: string, patch: Partial<ProviderConfig>) {
+    props.onChange({
+      ...props.draft,
+      providers: {
+        ...props.draft.providers,
+        [name]: { ...props.draft.providers[name], ...patch },
+      },
+    });
+  }
+
+  function switchProvider(provider: ModelProvider) {
+    const preset = getProviderPreset(provider);
+    const providerConfig = props.draft.providers[provider] ?? {};
+    const model = providerConfig.model || preset?.defaultModel || "";
+
+    props.onChange({
+      ...props.draft,
+      defaultModel: { provider, name: model },
+      providers: {
+        ...props.draft.providers,
+        [provider]: {
+          ...providerConfig,
+          model,
+          baseUrl: providerConfig.baseUrl || preset?.baseUrl,
+        },
+      },
+    });
+  }
+
+  function updateGeneration(patch: Partial<SettingsType["generation"]>) {
+    props.onChange({
+      ...props.draft,
+      generation: { ...props.draft.generation, ...patch },
+    });
+  }
+
+  function updateAgent(patch: Partial<SettingsType["agent"]>) {
+    props.onChange({
+      ...props.draft,
+      agent: { ...props.draft.agent, ...patch },
+    });
+  }
+
+  function updateWorkspace(patch: Partial<SettingsType["workspace"]>) {
+    props.onChange({
+      ...props.draft,
+      workspace: { ...props.draft.workspace, ...patch },
+    });
+  }
+
+  function syncActiveModel(model: string) {
+    updateDefaultModel({ name: model });
+    updateProvider(activeProvider, { model });
+  }
+
+  return (
+    <div className="settings-overlay">
+      <div className="settings-panel settings-panel-wide">
+        <header className="settings-head">
+          <div>
+            <strong>设置</strong>
+            <span>API / Agent / Workspace</span>
+          </div>
+          <button className="icon-button ghost" type="button" onClick={props.onClose}>
+            <X size={14} />
+          </button>
+        </header>
+
+        <div className="settings-body settings-body-grid">
+          <section className="settings-section settings-section-full">
+            <div className="section-title">默认模型</div>
+            <div className="provider-tabs">
+              {PROVIDER_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  className={
+                    activeProvider === preset.id
+                      ? "provider-tab active"
+                      : "provider-tab"
+                  }
+                  type="button"
+                  onClick={() => switchProvider(preset.id)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="settings-grid two default-model-grid">
+              <label className="field wide">
+                <span>模型</span>
+                {activePreset && activePreset.models.length > 0 ? (
+                  <select
+                    value={props.draft.defaultModel.name}
+                    onChange={(event) => syncActiveModel(event.target.value)}
+                  >
+                    {activePreset.models.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={props.draft.defaultModel.name}
+                    placeholder="model name"
+                    onChange={(event) => syncActiveModel(event.target.value)}
+                  />
+                )}
+              </label>
+              <label className="field wide settings-grid-span">
+                <span>Base</span>
+                <input
+                  value={activeConfig.baseUrl ?? ""}
+                  placeholder={activePreset?.baseUrl || "https://..."}
+                  onChange={(event) =>
+                    updateProvider(activeProvider, { baseUrl: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+          </section>
+
+          <ProviderBasics
+            title="DeepSeek 接入"
+            provider="deepseek"
+            config={props.draft.providers.deepseek ?? {}}
+            onChange={updateProvider}
+          />
+          <section className="settings-section dense">
+            <div className="section-title">DeepSeek 特化</div>
+            <div className="settings-grid three">
+              <label className="field wide settings-grid-span">
+                <span>模型</span>
+                <select
+                  value={props.draft.providers.deepseek?.model ?? "deepseek-v4-flash"}
+                  onChange={(event) =>
+                    updateProvider("deepseek", { model: event.target.value })
+                  }
+                >
+                  <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                </select>
+              </label>
+              <label className="field wide settings-grid-span">
+                <span>思考</span>
+                <select
+                  value={props.draft.providers.deepseek?.thinking ?? "enabled"}
+                  onChange={(event) =>
+                    updateProvider("deepseek", {
+                      thinking: event.target.value as ProviderConfig["thinking"],
+                    })
+                  }
+                >
+                  <option value="enabled">enabled</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </label>
+              <label className="field wide settings-grid-span">
+                <span>推理</span>
+                <select
+                  value={props.draft.providers.deepseek?.reasoningEffort ?? "high"}
+                  onChange={(event) =>
+                    updateProvider("deepseek", {
+                      reasoningEffort: event.target
+                        .value as ProviderConfig["reasoningEffort"],
+                    })
+                  }
+                >
+                  <option value="high">high</option>
+                  <option value="max">max</option>
+                </select>
+              </label>
+              <NumberField
+                label="Max"
+                value={props.draft.providers.deepseek?.maxTokens}
+                onChange={(value) => updateProvider("deepseek", { maxTokens: value })}
+              />
+              <NumberField
+                label="温度"
+                value={props.draft.providers.deepseek?.temperature}
+                step="0.1"
+                onChange={(value) => updateProvider("deepseek", { temperature: value })}
+              />
+              <NumberField
+                label="Top P"
+                value={props.draft.providers.deepseek?.topP}
+                step="0.05"
+                onChange={(value) => updateProvider("deepseek", { topP: value })}
+              />
+            </div>
+            <div className="settings-note">
+              deepseek-chat / deepseek-reasoner 将于 2026-07-24 15:59 UTC 废弃。
+            </div>
+          </section>
+
+          <ProviderBasics
+            title="Kimi 接入"
+            provider="kimi"
+            config={props.draft.providers.kimi ?? {}}
+            onChange={updateProvider}
+          />
+          <section className="settings-section dense">
+            <div className="section-title">Kimi 特化</div>
+            <div className="settings-grid three">
+              <label className="field wide">
+                <span>模型</span>
+                <select
+                  value={props.draft.providers.kimi?.model ?? "kimi-k2.6"}
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    updateProvider("kimi", {
+                      model,
+                      thinking: model.startsWith("kimi-k2.7-code")
+                        ? "enabled"
+                        : props.draft.providers.kimi?.thinking,
+                    });
+                  }}
+                >
+                  {getProviderPreset("kimi")?.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <NumberField
+                label="Max"
+                value={props.draft.providers.kimi?.maxCompletionTokens}
+                onChange={(value) =>
+                  updateProvider("kimi", { maxCompletionTokens: value })
+                }
+              />
+              <label className="field wide">
+                <span>思考</span>
+                <select
+                  value={props.draft.providers.kimi?.thinking ?? "disabled"}
+                  disabled={(props.draft.providers.kimi?.model ?? "").startsWith(
+                    "kimi-k2.7-code",
+                  )}
+                  onChange={(event) =>
+                    updateProvider("kimi", {
+                      thinking: event.target.value as ProviderConfig["thinking"],
+                    })
+                  }
+                >
+                  <option value="enabled">enabled</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </label>
+              <NumberField
+                label="温度"
+                value={props.draft.providers.kimi?.temperature}
+                step="0.1"
+                onChange={(value) => updateProvider("kimi", { temperature: value })}
+              />
+              <NumberField
+                label="Top P"
+                value={props.draft.providers.kimi?.topP}
+                step="0.05"
+                onChange={(value) => updateProvider("kimi", { topP: value })}
+              />
+              <label className="field wide">
+                <span>缓存</span>
+                <input
+                  value={props.draft.providers.kimi?.promptCacheKey ?? ""}
+                  placeholder="prompt_cache_key"
+                  onChange={(event) =>
+                    updateProvider("kimi", { promptCacheKey: event.target.value })
+                  }
+                />
+              </label>
+              <label className="field wide settings-grid-full">
+                <span>安全 ID</span>
+                <input
+                  value={props.draft.providers.kimi?.safetyIdentifier ?? ""}
+                  placeholder="hashed user/session id"
+                  onChange={(event) =>
+                    updateProvider("kimi", { safetyIdentifier: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <div className="settings-note">
+              K2.7 Code 系列 thinking 固定 enabled；K2.6 可开关 thinking。
+            </div>
+          </section>
+
+          <section className="settings-section dense">
+            <div className="section-title">OpenAI Compatible / Pi</div>
+            <div className="settings-grid two">
+              <label className="field wide settings-grid-span">
+                <span>Pi Key</span>
+                <input
+                  type="password"
+                  value={props.draft.providers.pi?.apiKey ?? ""}
+                  onChange={(event) => updateProvider("pi", { apiKey: event.target.value })}
+                />
+              </label>
+              <label className="field wide settings-grid-span">
+                <span>Pi Base</span>
+                <input
+                  value={props.draft.providers.pi?.baseUrl ?? ""}
+                  onChange={(event) => updateProvider("pi", { baseUrl: event.target.value })}
+                />
+              </label>
+              <label className="field wide">
+                <span>API Key</span>
+                <input
+                  type="password"
+                  value={props.draft.providers["openai-compatible"]?.apiKey ?? ""}
+                  onChange={(event) =>
+                    updateProvider("openai-compatible", { apiKey: event.target.value })
+                  }
+                />
+              </label>
+              <label className="field wide">
+                <span>Base</span>
+                <input
+                  value={props.draft.providers["openai-compatible"]?.baseUrl ?? ""}
+                  onChange={(event) =>
+                    updateProvider("openai-compatible", { baseUrl: event.target.value })
+                  }
+                />
+              </label>
+              <label className="field wide">
+                <span>模型</span>
+                <input
+                  value={props.draft.providers["openai-compatible"]?.model ?? ""}
+                  onChange={(event) =>
+                    updateProvider("openai-compatible", { model: event.target.value })
+                  }
+                />
+              </label>
+              <label className="field wide">
+                <span>工具</span>
+                <select
+                  value={props.draft.providers["openai-compatible"]?.toolChoice ?? "auto"}
+                  onChange={(event) =>
+                    updateProvider("openai-compatible", {
+                      toolChoice: event.target.value as ProviderConfig["toolChoice"],
+                    })
+                  }
+                >
+                  <option value="none">none</option>
+                  <option value="auto">auto</option>
+                  <option value="required">required</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-section dense">
+            <div className="section-title">生成默认值</div>
+            <div className="settings-grid three">
+              <NumberField
+                label="温度"
+                value={props.draft.generation.temperature}
+                step="0.1"
+                onChange={(value) =>
+                  updateGeneration({ temperature: value ?? DEFAULT_SETTINGS.generation.temperature })
+                }
+              />
+              <NumberField
+                label="Top P"
+                value={props.draft.generation.topP}
+                step="0.05"
+                onChange={(value) =>
+                  updateGeneration({ topP: value ?? DEFAULT_SETTINGS.generation.topP })
+                }
+              />
+              <NumberField
+                label="输出"
+                value={props.draft.generation.maxOutputTokens}
+                onChange={(value) =>
+                  updateGeneration({
+                    maxOutputTokens:
+                      value ?? DEFAULT_SETTINGS.generation.maxOutputTokens,
+                  })
+                }
+              />
+              <label className="field wide">
+                <span>格式</span>
+                <select
+                  value={props.draft.generation.responseFormat}
+                  onChange={(event) =>
+                    updateGeneration({
+                      responseFormat: event.target.value as SettingsType["generation"]["responseFormat"],
+                    })
+                  }
+                >
+                  <option value="text">text</option>
+                  <option value="json_object">json_object</option>
+                </select>
+              </label>
+              <ToggleField
+                label="流式"
+                checked={props.draft.generation.stream}
+                onChange={(stream) => updateGeneration({ stream })}
+              />
+              <label className="field wide">
+                <span>Stop</span>
+                <input
+                  value={props.draft.generation.stopSequences.join("\\n")}
+                  placeholder="one per line"
+                  onChange={(event) =>
+                    updateGeneration({
+                      stopSequences: splitLines(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-section dense">
+            <div className="section-title">Agent 运行</div>
+            <div className="settings-grid three">
+              <NumberField
+                label="近文"
+                value={props.draft.agent.recentMessageLimit}
+                onChange={(value) =>
+                  updateAgent({
+                    recentMessageLimit:
+                      value ?? DEFAULT_SETTINGS.agent.recentMessageLimit,
+                  })
+                }
+              />
+              <NumberField
+                label="世界书"
+                value={props.draft.agent.maxLoreEntries}
+                onChange={(value) =>
+                  updateAgent({
+                    maxLoreEntries: value ?? DEFAULT_SETTINGS.agent.maxLoreEntries,
+                  })
+                }
+              />
+              <NumberField
+                label="字数"
+                value={props.draft.agent.maxOutputChars}
+                onChange={(value) =>
+                  updateAgent({
+                    maxOutputChars: value ?? DEFAULT_SETTINGS.agent.maxOutputChars,
+                  })
+                }
+              />
+              <NumberField
+                label="摘要"
+                value={props.draft.agent.summaryMaxChars}
+                onChange={(value) =>
+                  updateAgent({
+                    summaryMaxChars: value ?? DEFAULT_SETTINGS.agent.summaryMaxChars,
+                  })
+                }
+              />
+              <ToggleField
+                label="验证"
+                checked={props.draft.agent.validationEnabled}
+                onChange={(validationEnabled) => updateAgent({ validationEnabled })}
+              />
+              <ToggleField
+                label="Trace"
+                checked={props.draft.agent.storePromptTrace}
+                onChange={(storePromptTrace) => updateAgent({ storePromptTrace })}
+              />
+              <ToggleField
+                label="状态"
+                checked={props.draft.agent.autoUpdateState}
+                onChange={(autoUpdateState) => updateAgent({ autoUpdateState })}
+              />
+            </div>
+          </section>
+
+          <section className="settings-section dense">
+            <div className="section-title">Workspace</div>
+            <div className="settings-grid three">
+              <NumberField
+                label="事件"
+                value={props.draft.workspace.eventPreviewLimit}
+                onChange={(value) =>
+                  updateWorkspace({
+                    eventPreviewLimit:
+                      value ?? DEFAULT_SETTINGS.workspace.eventPreviewLimit,
+                  })
+                }
+              />
+              <ToggleField
+                label="脱敏"
+                checked={props.draft.workspace.redactApiKeys}
+                onChange={(redactApiKeys) => updateWorkspace({ redactApiKeys })}
+              />
+              <label className="field wide">
+                <span>标题</span>
+                <input
+                  value={props.draft.workspace.defaultConversationTitle}
+                  onChange={(event) =>
+                    updateWorkspace({
+                      defaultConversationTitle: event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <footer className="settings-foot">
+          <button className="tool-button" type="button" onClick={props.onClose}>
+            取消
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={props.onSave}
+            disabled={props.busy}
+          >
+            {props.busy ? <Loader2 size={13} /> : <Save size={13} />}
+            保存设置
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ProviderBasics(props: {
+  title: string;
+  provider: string;
+  config: ProviderConfig;
+  onChange: (provider: string, patch: Partial<ProviderConfig>) => void;
+}) {
+  return (
+    <section className="settings-section dense">
+      <div className="section-title">{props.title}</div>
+      <div className="settings-grid provider-basics-grid">
+        <label className="field wide">
+          <span>API Key</span>
+          <input
+            type="password"
+            value={props.config.apiKey ?? ""}
+            onChange={(event) =>
+              props.onChange(props.provider, { apiKey: event.target.value })
+            }
+          />
+        </label>
+        <label className="field wide">
+          <span>Base</span>
+          <input
+            value={props.config.baseUrl ?? ""}
+            onChange={(event) =>
+              props.onChange(props.provider, { baseUrl: event.target.value })
+            }
+          />
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function NumberField(props: {
+  label: string;
+  value: number | undefined;
+  step?: string;
+  onChange: (value: number | undefined) => void;
+}) {
+  return (
+    <label className="field wide">
+      <span>{props.label}</span>
+      <input
+        type="number"
+        step={props.step ?? "1"}
+        value={formatOptionalNumber(props.value)}
+        onChange={(event) => props.onChange(parseOptionalNumber(event.target.value))}
+      />
+    </label>
+  );
+}
+
+function ToggleField(props: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="toggle-field">
+      <span>{props.label}</span>
+      <input
+        type="checkbox"
+        checked={props.checked}
+        onChange={(event) => props.onChange(event.target.checked)}
+      />
+    </label>
+  );
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 function FileImporter(props: {
