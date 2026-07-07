@@ -16,14 +16,18 @@
     "import:lorebook": "tsx src/cli.ts import-lorebook"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.80.3",
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@types/ws": "^8.18.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.10",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@types/node": "^24.0.10",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "tsx": "^4.20.3",

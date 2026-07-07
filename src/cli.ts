@@ -1,8 +1,7 @@
 import path from "node:path";
 import { cwd, exit } from "node:process";
 
-import { MockModelClient } from "./agent/model.js";
-import { AgentRuntime } from "./agent/pipeline.js";
+import { PiRuntime } from "./agent/pi-runtime.js";
 import { readJsonFile } from "./lib/json.js";
 import {
   normalizeCharacterCard,
@@ -12,6 +11,8 @@ import { normalizeLorebook } from "./st/lorebook.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 
 const store = new WorkspaceStore(cwd());
+const settings = await store.loadSettings();
+const piRuntime = new PiRuntime({ store, settings });
 
 async function main(): Promise<void> {
   const [, , command, ...args] = process.argv;
@@ -61,19 +62,31 @@ async function runDemo(): Promise<void> {
     characterId: character.id,
     lorebookIds: [lorebook.id],
   });
-  const runtime = new AgentRuntime(store, new MockModelClient());
-  const result = await runtime.handleUserInput({
-    conversationId: conversation.id,
-    text: "The old clock tower is acting strange.",
-  });
+
+  const success = await piRuntime.runTurn(
+    conversation.id,
+    "The old clock tower is acting strange.",
+    () => undefined,
+  );
+  if (!success) {
+    throw new Error("Demo turn failed.");
+  }
+
+  const messages = await store.loadRecentMessages(conversation.id, 80);
+  let output = "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant") {
+      output = messages[index].content;
+      break;
+    }
+  }
 
   console.log(`Conversation: ${conversation.id}`);
   console.log(`Workspace: ${store.conversationDir(conversation.id)}`);
   console.log(`Character: ${character.id}`);
   console.log(`Lorebook: ${lorebook.id}`);
-  console.log(`Matched lore: ${result.matchedLoreEntries.length}`);
   console.log("");
-  console.log(result.output);
+  console.log(output);
 }
 
 async function importCharacter(filePath: string): Promise<void> {
@@ -126,22 +139,61 @@ async function sendMessage(
     throw new Error("Message text is required.");
   }
 
-  const runtime = new AgentRuntime(store, new MockModelClient());
-  const result = await runtime.handleUserInput({
-    conversationId,
-    text,
-  });
+  const success = await piRuntime.runTurn(conversationId, text, () => undefined);
+  if (!success) {
+    throw new Error("Turn failed.");
+  }
 
-  console.log(result.output);
+  const messages = await store.loadRecentMessages(conversationId, 80);
+  let output = "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant") {
+      output = messages[index].content;
+      break;
+    }
+  }
 
-  if (result.matchedLoreEntries.length > 0) {
+  console.log(output);
+
+  const config = await store.loadConversationConfig(conversationId);
+  const lorebooks = await Promise.all(
+    config.lorebookIds.map((id) => store.loadLorebook(id)),
+  );
+  const events = await store.loadEvents(conversationId);
+  const matchedLoreEntryIds = readLastMatchedLoreEntryIds(events);
+  const matchedLoreEntries = lorebooks
+    .flatMap((book) => book.entries)
+    .filter((entry) => matchedLoreEntryIds.includes(entry.id));
+
+  if (matchedLoreEntries.length > 0) {
     console.log("");
     console.log(
-      `Matched lore: ${result.matchedLoreEntries
+      `Matched lore: ${matchedLoreEntries
         .map((entry) => entry.title)
         .join(", ")}`,
     );
   }
+}
+
+function readLastMatchedLoreEntryIds(events: { type: string; payload?: unknown }[]): string[] {
+  const trace = events
+    .slice()
+    .reverse()
+    .find((event) => event.type === "pipeline_trace");
+  const payload = trace?.payload;
+
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "matchedLoreEntryIds" in payload &&
+    Array.isArray(payload.matchedLoreEntryIds)
+  ) {
+    return payload.matchedLoreEntryIds.filter(
+      (item): item is string => typeof item === "string",
+    );
+  }
+
+  return [];
 }
 
 function requiredArg(args: string[], index: number, label: string): string {

@@ -37,6 +37,7 @@ import {
   importLorebook,
   runDemo,
   sendMessage,
+  streamMessage,
   updateConversationConfig,
   updateConversationState,
   updateLorebook,
@@ -85,6 +86,7 @@ export function App() {
     currentScene: "",
     variables: "{}",
   });
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [lorebookDrafts, setLorebookDrafts] = useState<Record<string, Lorebook>>({});
   const [expandedLorebooks, setExpandedLorebooks] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -226,13 +228,34 @@ export function App() {
     const trimmed = message.trim();
     if (!activeConversationId || trimmed.length === 0) return;
 
-    await runTask("send", async () => {
-      const response = await sendMessage(activeConversationId, trimmed);
-      setOverview(response.overview);
-      setSnapshot(response.snapshot);
-      setLastMatchedLore(response.result.matchedLoreEntries);
-      setMessage("");
-    });
+    setBusy("send");
+    setError(null);
+    setMessage("");
+    setStreamingContent("");
+
+    try {
+      await streamMessage(activeConversationId, trimmed, (event) => {
+        if (
+          event.type === "message_start" ||
+          event.type === "message_update" ||
+          event.type === "message_end"
+        ) {
+          const message = event.message as Record<string, unknown> | undefined;
+          setStreamingContent(extractTextFromPiMessage(message));
+        } else if (event.type === "done") {
+          setOverview(event.overview);
+          setSnapshot(event.snapshot);
+          setLastMatchedLore(event.snapshot.matchedLoreEntries);
+        }
+      });
+    } catch (sendError) {
+      const message =
+        sendError instanceof Error ? sendError.message : String(sendError);
+      setError(message);
+    } finally {
+      setBusy(null);
+      setStreamingContent(null);
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -817,6 +840,15 @@ export function App() {
               </div>
             </div>
           ))}
+          {streamingContent !== null && (
+            <div className="message assistant streaming">
+              <div className="message-inner">
+                <span className="role">{roleLabel("assistant")}</span>
+                <p>{streamingContent}</p>
+                <small className="time">生成中…</small>
+              </div>
+            </div>
+          )}
           {!snapshot && (
             <div className="empty center">
               <span>选择一个会话开始，或导入角色卡</span>
@@ -1966,4 +1998,22 @@ function formatTokens(value: number): string {
     return `${(value / 1000).toFixed(1)}K`;
   }
   return String(value);
+}
+
+function extractTextFromPiMessage(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const content = (message as Record<string, unknown>).content;
+  if (!Array.isArray(content)) {
+    return typeof content === "string" ? content : "";
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && typeof part === "object" && "text" in part) {
+        return String((part as Record<string, unknown>).text ?? "");
+      }
+      return "";
+    })
+    .join("");
 }

@@ -1,9 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { cwd, exit } from "node:process";
+import { WebSocketServer, WebSocket } from "ws";
 
-import { AgentRuntime } from "./agent/pipeline.js";
-import { RuntimeModelClient } from "./agent/model.js";
+import { PiRuntime } from "./agent/pi-runtime.js";
 import { nowIso } from "./lib/ids.js";
 import { readJsonFile } from "./lib/json.js";
 import { normalizeSettings } from "./settings/defaults.js";
@@ -14,6 +14,7 @@ import {
 import { normalizeLorebook } from "./st/lorebook.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 import type {
+  AgentTurnResult,
   CharacterProfile,
   ChatMessage,
   ConversationConfig,
@@ -85,7 +86,8 @@ interface UpdateSettingsBody {
 }
 
 const store = new WorkspaceStore(cwd());
-const runtime = new AgentRuntime(store, new RuntimeModelClient());
+const settings = await store.loadSettings();
+const piRuntime = new PiRuntime({ store, settings });
 const port = Number(process.env.PORT ?? 8787);
 
 const server = createServer(async (request, response) => {
@@ -106,6 +108,84 @@ server.on("error", (error: NodeJS.ErrnoException) => {
   }
 
   throw error;
+});
+
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on("connection", (ws, request) => {
+  const conversationId = extractStreamConversationId(request.url, request.headers.host);
+  if (!conversationId) {
+    ws.close(1002, "Invalid stream path");
+    return;
+  }
+
+  let running = false;
+
+  ws.on("message", async (data) => {
+    if (running) {
+      sendWsError(ws, "A turn is already in progress.");
+      return;
+    }
+
+    let message: unknown;
+    try {
+      message = JSON.parse(String(data));
+    } catch {
+      sendWsError(ws, "Invalid JSON.");
+      return;
+    }
+
+    if (
+      typeof message !== "object" ||
+      message === null ||
+      (message as Record<string, unknown>).type !== "send" ||
+      typeof (message as Record<string, unknown>).text !== "string"
+    ) {
+      sendWsError(ws, "Expected { type: 'send', text: string }.");
+      return;
+    }
+
+    const text = String((message as Record<string, unknown>).text).trim();
+    if (text.length === 0) {
+      sendWsError(ws, "Message text is required.");
+      return;
+    }
+
+    running = true;
+    try {
+      const success = await piRuntime.runTurn(conversationId, text, (event) => {
+        sendWs(ws, event);
+      });
+      if (success) {
+        sendWs(ws, {
+          type: "done",
+          snapshot: await loadSnapshot(conversationId),
+          overview: await loadOverview(),
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendWsError(ws, message);
+    } finally {
+      running = false;
+    }
+  });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+  });
+});
+
+server.on("upgrade", (request, socket, head) => {
+  const conversationId = extractStreamConversationId(request.url, request.headers.host);
+  if (!conversationId) {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit("connection", ws, request);
+  });
 });
 
 server.listen(port, "127.0.0.1", () => {
@@ -155,6 +235,7 @@ async function route(
     });
 
     await store.saveSettings(nextSettings);
+    piRuntime.setSettings(nextSettings);
     sendJson(response, 200, nextSettings);
     return;
   }
@@ -224,14 +305,16 @@ async function route(
   if (request.method === "POST" && sendMatch) {
     const body = await readBody<SendMessageBody>(request);
     const text = requireString(body.text, "text");
-    const result = await runtime.handleUserInput({
-      conversationId: sendMatch[1],
-      text,
-    });
+    const conversationId = sendMatch[1];
+    const success = await piRuntime.runTurn(conversationId, text, () => undefined);
+    if (!success) {
+      throw new Error("Assistant turn failed.");
+    }
 
+    const snapshot = await loadSnapshot(conversationId);
     sendJson(response, 200, {
-      result,
-      snapshot: await loadSnapshot(sendMatch[1]),
+      result: buildTurnResult(conversationId, snapshot),
+      snapshot,
       overview: await loadOverview(),
     });
     return;
@@ -406,10 +489,14 @@ async function runDemoTurn(): Promise<{
   config.model = settings.defaultModel;
   await store.saveConversationConfig(config);
 
-  await runtime.handleUserInput({
-    conversationId: config.id,
-    text: "The old clock tower is acting strange.",
-  });
+  const success = await piRuntime.runTurn(
+    config.id,
+    "The old clock tower is acting strange.",
+    () => undefined,
+  );
+  if (!success) {
+    throw new Error("Demo turn failed.");
+  }
 
   return {
     snapshot: await loadSnapshot(config.id),
@@ -452,6 +539,47 @@ function sendJson(
   });
 
   response.end(JSON.stringify(payload));
+}
+
+function buildTurnResult(
+  conversationId: string,
+  snapshot: ConversationSnapshot,
+): AgentTurnResult {
+  let output = "";
+  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+    const message = snapshot.messages[index];
+    if (message.role === "assistant") {
+      output = message.content;
+      break;
+    }
+  }
+
+  return {
+    conversationId,
+    output,
+    matchedLoreEntries: snapshot.matchedLoreEntries,
+    tokenUsage: snapshot.tokenUsage,
+    validation: { passed: true, issues: [] },
+  };
+}
+
+function extractStreamConversationId(
+  urlString: string | undefined,
+  host: string | undefined,
+): string | undefined {
+  const url = new URL(urlString ?? "/", `http://${host ?? "127.0.0.1"}`);
+  const match = url.pathname.match(/^\/api\/conversations\/([^/]+)\/stream$/);
+  return match?.[1];
+}
+
+function sendWs(ws: WebSocket, payload: unknown): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+}
+
+function sendWsError(ws: WebSocket, error: string): void {
+  sendWs(ws, { type: "error", error });
 }
 
 function resolveMatchedLoreEntries(
