@@ -8,6 +8,7 @@ import {
   normalizeEmbeddedCharacterBook,
 } from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
+import { renderOpeningMessage } from "./st/prompt.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 
 const store = new WorkspaceStore(cwd());
@@ -65,6 +66,14 @@ async function runDemo(): Promise<void> {
   });
   conversation.model = settings.defaultModel;
   await store.saveConversationConfig(conversation);
+  await store.seedOpeningMessage(
+    conversation.id,
+    renderOpeningMessage(
+      character,
+      settings,
+      await store.loadConversationState(conversation.id),
+    ),
+  );
 
   const success = await piRuntime.runTurn(
     conversation.id,
@@ -118,7 +127,7 @@ async function newConversation(
   characterId: string,
   lorebookIds: string[],
 ): Promise<void> {
-  await store.loadCharacter(characterId);
+  const character = await store.loadCharacter(characterId);
 
   for (const lorebookId of lorebookIds) {
     await store.loadLorebook(lorebookId);
@@ -129,6 +138,17 @@ async function newConversation(
     characterId,
     lorebookIds,
   });
+  const settings = await store.loadSettings();
+  conversation.model = settings.defaultModel;
+  await store.saveConversationConfig(conversation);
+  await store.seedOpeningMessage(
+    conversation.id,
+    renderOpeningMessage(
+      character,
+      settings,
+      await store.loadConversationState(conversation.id),
+    ),
+  );
 
   console.log(`Conversation: ${conversation.id}`);
   console.log(`Workspace: ${store.conversationDir(conversation.id)}`);

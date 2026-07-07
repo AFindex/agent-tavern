@@ -21,12 +21,34 @@ export interface CharacterProfile {
   personality: string;
   scenario: string;
   firstMessage: string;
+  alternateGreetings: string[];
   messageExamples: string;
   systemPrompt: string;
+  postHistoryInstructions: string;
   creatorNotes: string;
+  creator: string;
+  characterVersion: string;
+  tags: string[];
+  regexScripts: RegexScript[];
   extensions: Record<string, JsonValue>;
   source: AssetSource;
 }
+
+export type LorebookPosition =
+  | "before_char"
+  | "after_char"
+  | "before_example"
+  | "after_example"
+  | "top_an"
+  | "bottom_an"
+  | "at_depth"
+  | "outlet";
+
+export type SelectiveLogic =
+  | "and_any"
+  | "and_all"
+  | "not_any"
+  | "not_all";
 
 export interface LorebookEntry {
   id: string;
@@ -38,13 +60,33 @@ export interface LorebookEntry {
   enabled: boolean;
   constant: boolean;
   selective: boolean;
+  selectiveLogic: SelectiveLogic;
+  caseSensitive?: boolean;
+  matchWholeWords?: boolean;
+  scanDepth?: number;
+  position: LorebookPosition;
+  depth?: number;
+  outletName?: string;
+  probability: number;
+  useProbability: boolean;
+  group: string;
+  groupWeight: number;
+  excludeRecursion: boolean;
+  preventRecursion: boolean;
+  delayUntilRecursion: boolean;
   priority: number;
   insertionOrder: number;
+  extensions: Record<string, JsonValue>;
 }
 
 export interface Lorebook {
   id: string;
   name: string;
+  description: string;
+  scanDepth?: number;
+  tokenBudget?: number;
+  recursiveScanning?: boolean;
+  extensions: Record<string, JsonValue>;
   entries: LorebookEntry[];
   source: AssetSource;
 }
@@ -100,11 +142,45 @@ export interface GenerationSettings {
 export interface AgentSettings {
   recentMessageLimit: number;
   maxLoreEntries: number;
+  userName: string;
+  loreScanDepth: number;
+  loreRecursiveScanning: boolean;
+  loreMaxRecursionSteps: number;
+  loreCaseSensitive: boolean;
+  loreMatchWholeWords: boolean;
+  regexScripts: RegexScript[];
   storePromptTrace: boolean;
   validationEnabled: boolean;
   maxOutputChars: number;
   autoUpdateState: boolean;
   summaryMaxChars: number;
+}
+
+export type RegexMacroMode = "none" | "raw" | "escaped";
+
+export type RegexTarget =
+  | "userInput"
+  | "aiResponse"
+  | "slashCommand"
+  | "worldInfo"
+  | "prompt"
+  | "reasoning"
+  | "display";
+
+export interface RegexScript {
+  id: string;
+  name: string;
+  findRegex: string;
+  replaceString: string;
+  trimStrings: string[];
+  disabled: boolean;
+  runOnEdit: boolean;
+  macrosInFind: RegexMacroMode;
+  affects: Record<RegexTarget, boolean>;
+  alterOutgoingPrompt: boolean;
+  alterDisplay: boolean;
+  minDepth?: number;
+  maxDepth?: number;
 }
 
 export interface WorkspaceSettings {
@@ -187,5 +263,4 @@ export interface AgentTurnResult {
   validation: ValidationResult;
   tokenUsage?: TokenUsage;
 }
-
 

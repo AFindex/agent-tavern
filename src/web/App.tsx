@@ -839,7 +839,7 @@ export function App() {
             >
               <div className="message-inner">
                 <span className="role">{roleLabel(messageItem.role)}</span>
-                <p>{messageItem.content}</p>
+                <MessageContent text={messageItem.content} />
                 <small className="time">{formatTime(messageItem.timestamp)}</small>
               </div>
             </div>
@@ -851,7 +851,7 @@ export function App() {
                 {streamingThinking && streamingThinking.length > 0 && (
                   <div className="thinking-stream">{streamingThinking}</div>
                 )}
-                <p>{streamingContent}</p>
+                <MessageContent text={streamingContent ?? ""} />
                 <small className="time">生成中…</small>
               </div>
             </div>
@@ -1034,6 +1034,58 @@ export function App() {
                                   />
                                   <span>恒定</span>
                                 </label>
+                                <label className="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.selective}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        selective: event.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span>过滤</span>
+                                </label>
+                                <label className="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.caseSensitive ?? false}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        caseSensitive: event.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span>大小写</span>
+                                </label>
+                                <label className="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.matchWholeWords ?? true}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        matchWholeWords: event.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span>整词</span>
+                                </label>
+                                <label className="priority">
+                                  <span>逻辑</span>
+                                  <select
+                                    value={entry.selectiveLogic ?? "and_any"}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        selectiveLogic: event.target.value as LorebookEntry["selectiveLogic"],
+                                      })
+                                    }
+                                  >
+                                    <option value="and_any">AND ANY</option>
+                                    <option value="and_all">AND ALL</option>
+                                    <option value="not_any">NOT ANY</option>
+                                    <option value="not_all">NOT ALL</option>
+                                  </select>
+                                </label>
                                 <label className="priority">
                                   <span>优先级</span>
                                   <input
@@ -1044,6 +1096,71 @@ export function App() {
                                         priority: Number(event.target.value),
                                       })
                                     }
+                                  />
+                                </label>
+                                <label className="priority">
+                                  <span>概率</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={entry.probability ?? 100}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        probability: Number(event.target.value),
+                                        useProbability: Number(event.target.value) < 100,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="priority">
+                                  <span>位置</span>
+                                  <select
+                                    value={entry.position ?? "after_char"}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        position: event.target.value as LorebookEntry["position"],
+                                      })
+                                    }
+                                  >
+                                    <option value="before_char">角色前</option>
+                                    <option value="after_char">角色后</option>
+                                    <option value="before_example">例句前</option>
+                                    <option value="after_example">例句后</option>
+                                    <option value="top_an">AN 顶部</option>
+                                    <option value="bottom_an">AN 底部</option>
+                                    <option value="at_depth">@Depth</option>
+                                    <option value="outlet">Outlet</option>
+                                  </select>
+                                </label>
+                              </div>
+                              <div className="lore-key-grid">
+                                <label>
+                                  <span>主 Keys</span>
+                                  <textarea
+                                    className="lore-key-input"
+                                    value={formatKeyList(entry.keys)}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        keys: parseKeyList(event.target.value),
+                                      })
+                                    }
+                                    rows={2}
+                                    placeholder="每行一个 key，支持 /regex/flags"
+                                  />
+                                </label>
+                                <label>
+                                  <span>过滤 Keys</span>
+                                  <textarea
+                                    className="lore-key-input"
+                                    value={formatKeyList(entry.secondaryKeys)}
+                                    onChange={(event) =>
+                                      updateLorebookEntry(lorebook.id, entry.id, {
+                                        secondaryKeys: parseKeyList(event.target.value),
+                                      })
+                                    }
+                                    rows={2}
+                                    placeholder="selective 启用时使用"
                                   />
                                 </label>
                               </div>
@@ -1683,6 +1800,15 @@ function RuntimeSettingsPanel(props: {
           <section className="settings-section dense">
             <div className="section-title">Agent 运行</div>
             <div className="settings-grid three">
+              <label className="field wide">
+                <span>用户</span>
+                <input
+                  value={props.draft.agent.userName}
+                  onChange={(event) =>
+                    updateAgent({ userName: event.target.value || DEFAULT_SETTINGS.agent.userName })
+                  }
+                />
+              </label>
               <NumberField
                 label="近文"
                 value={props.draft.agent.recentMessageLimit}
@@ -1694,11 +1820,30 @@ function RuntimeSettingsPanel(props: {
                 }
               />
               <NumberField
+                label="扫描"
+                value={props.draft.agent.loreScanDepth}
+                onChange={(value) =>
+                  updateAgent({
+                    loreScanDepth: value ?? DEFAULT_SETTINGS.agent.loreScanDepth,
+                  })
+                }
+              />
+              <NumberField
                 label="世界书"
                 value={props.draft.agent.maxLoreEntries}
                 onChange={(value) =>
                   updateAgent({
                     maxLoreEntries: value ?? DEFAULT_SETTINGS.agent.maxLoreEntries,
+                  })
+                }
+              />
+              <NumberField
+                label="递归"
+                value={props.draft.agent.loreMaxRecursionSteps}
+                onChange={(value) =>
+                  updateAgent({
+                    loreMaxRecursionSteps:
+                      value ?? DEFAULT_SETTINGS.agent.loreMaxRecursionSteps,
                   })
                 }
               />
@@ -1729,6 +1874,21 @@ function RuntimeSettingsPanel(props: {
                 label="Trace"
                 checked={props.draft.agent.storePromptTrace}
                 onChange={(storePromptTrace) => updateAgent({ storePromptTrace })}
+              />
+              <ToggleField
+                label="递归"
+                checked={props.draft.agent.loreRecursiveScanning}
+                onChange={(loreRecursiveScanning) => updateAgent({ loreRecursiveScanning })}
+              />
+              <ToggleField
+                label="大小写"
+                checked={props.draft.agent.loreCaseSensitive}
+                onChange={(loreCaseSensitive) => updateAgent({ loreCaseSensitive })}
+              />
+              <ToggleField
+                label="整词"
+                checked={props.draft.agent.loreMatchWholeWords}
+                onChange={(loreMatchWholeWords) => updateAgent({ loreMatchWholeWords })}
               />
               <ToggleField
                 label="状态"
@@ -1881,6 +2041,67 @@ function splitLines(value: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+function formatKeyList(keys: string[]): string {
+  return keys.join("\n");
+}
+
+function parseKeyList(value: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return [];
+
+  const parts = trimmed.includes("\n")
+    ? trimmed.split(/\r?\n/)
+    : splitCommaSeparatedKeys(trimmed);
+
+  return [...new Set(parts.map((part) => part.trim()).filter(Boolean))];
+}
+
+function splitCommaSeparatedKeys(value: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let regexOpen = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const atTokenStart = current.trim().length === 0;
+
+    if (char === "\\" && regexOpen) {
+      current += char;
+      escaped = !escaped;
+      continue;
+    }
+
+    if (char === "/" && !escaped) {
+      if (atTokenStart && !regexOpen) {
+        regexOpen = true;
+      } else if (regexOpen) {
+        regexOpen = false;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === "," && !regexOpen) {
+      parts.push(current);
+      current = "";
+      escaped = false;
+      continue;
+    }
+
+    if (regexOpen && char === "," && !escaped) {
+      current += char;
+      continue;
+    }
+
+    current += char;
+    escaped = false;
+  }
+
+  parts.push(current);
+  return parts;
+}
+
 function FileImporter(props: {
   label: string;
   icon: ReactNode;
@@ -1959,6 +2180,245 @@ function DropOverlay(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function MessageContent(props: { text: string }) {
+  return <div className="message-content">{renderMessageBlocks(props.text)}</div>;
+}
+
+function renderMessageBlocks(text: string): ReactNode[] {
+  if (text.length === 0) {
+    return [<p key="empty" className="message-paragraph muted">...</p>];
+  }
+
+  const blocks: ReactNode[] = [];
+  const fencePattern = /```([^\n`]*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fencePattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      blocks.push(...renderTextBlocks(text.slice(lastIndex, match.index), `t${blocks.length}`));
+    }
+
+    blocks.push(
+      <pre key={`code-${blocks.length}`} className="message-code-block">
+        <code>{match[2]}</code>
+      </pre>,
+    );
+    lastIndex = fencePattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    blocks.push(...renderTextBlocks(text.slice(lastIndex), `t${blocks.length}`));
+  }
+
+  return blocks.length > 0 ? blocks : [<p key="empty" className="message-paragraph muted">...</p>];
+}
+
+function renderTextBlocks(text: string, keyPrefix: string): ReactNode[] {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.trim().length === 0) {
+      index += 1;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      blocks.push(
+        <div key={`${keyPrefix}-h-${index}`} className={`message-heading h${level}`}>
+          {renderInline(heading[2], `${keyPrefix}-h-${index}`)}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) {
+        quoteLines.push(lines[index].replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <blockquote key={`${keyPrefix}-q-${index}`}>
+          {renderInline(quoteLines.join("\n"), `${keyPrefix}-q-${index}`)}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ul key={`${keyPrefix}-ul-${index}`}>
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInline(item, `${keyPrefix}-ul-${index}-${itemIndex}`)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+[.)]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ol key={`${keyPrefix}-ol-${index}`}>
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInline(item, `${keyPrefix}-ol-${index}-${itemIndex}`)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    const paragraphLines = [line];
+    index += 1;
+    while (
+      index < lines.length &&
+      lines[index].trim().length > 0 &&
+      !/^(#{1,3})\s+/.test(lines[index]) &&
+      !/^>\s?/.test(lines[index]) &&
+      !/^\s*[-*]\s+/.test(lines[index]) &&
+      !/^\s*\d+[.)]\s+/.test(lines[index])
+    ) {
+      paragraphLines.push(lines[index]);
+      index += 1;
+    }
+
+    blocks.push(
+      <p key={`${keyPrefix}-p-${index}`} className="message-paragraph">
+        {renderInline(paragraphLines.join("\n"), `${keyPrefix}-p-${index}`)}
+      </p>,
+    );
+  }
+
+  return blocks;
+}
+
+function renderInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
+  if (text.length === 0) return [];
+  if (depth > 6) return [text];
+
+  const specs: Array<{
+    pattern: RegExp;
+    render: (match: RegExpExecArray, key: string) => ReactNode;
+  }> = [
+    {
+      pattern: /<br\s*\/?>/i,
+      render: (_match, key) => <br key={key} />,
+    },
+    {
+      pattern: /!\[([^\]]*)\]\((https?:\/\/[^)\s]+|data:image\/[^)\s]+)\)/i,
+      render: (match, key) => (
+        <img key={key} className="message-image" src={match[2]} alt={match[1]} />
+      ),
+    },
+    {
+      pattern: /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/i,
+      render: (match, key) => (
+        <a key={key} href={match[2]} target="_blank" rel="noreferrer">
+          {renderInline(match[1], `${key}-label`, depth + 1)}
+        </a>
+      ),
+    },
+    inlinePair(/<strong>([\s\S]+?)<\/strong>/i, "strong"),
+    inlinePair(/<b>([\s\S]+?)<\/b>/i, "strong"),
+    inlinePair(/<em>([\s\S]+?)<\/em>/i, "em"),
+    inlinePair(/<i>([\s\S]+?)<\/i>/i, "em"),
+    inlinePair(/<u>([\s\S]+?)<\/u>/i, "u"),
+    inlinePair(/<s>([\s\S]+?)<\/s>/i, "s"),
+    inlinePair(/<del>([\s\S]+?)<\/del>/i, "s"),
+    inlinePair(/\*\*([\s\S]+?)\*\*/, "strong"),
+    inlinePair(/__([\s\S]+?)__/, "strong"),
+    inlinePair(/~~([\s\S]+?)~~/, "s"),
+    inlinePair(/\|\|([\s\S]+?)\|\|/, "spoiler"),
+    {
+      pattern: /`([^`\n]+?)`/,
+      render: (match, key) => <code key={key}>{match[1]}</code>,
+    },
+    inlinePair(/\*([^*\n]+?)\*/, "em"),
+    inlinePair(/_([^_\n]+?)_/, "em"),
+  ];
+
+  let selected:
+    | {
+        match: RegExpExecArray;
+        spec: (typeof specs)[number];
+      }
+    | null = null;
+
+  for (const spec of specs) {
+    const match = spec.pattern.exec(text);
+    if (!match) continue;
+    if (!selected || match.index < selected.match.index) {
+      selected = { match, spec };
+    }
+  }
+
+  if (!selected) {
+    return splitLineBreaks(text, keyPrefix);
+  }
+
+  const nodes: ReactNode[] = [];
+  if (selected.match.index > 0) {
+    nodes.push(...splitLineBreaks(text.slice(0, selected.match.index), `${keyPrefix}-pre`));
+  }
+  nodes.push(selected.spec.render(selected.match, `${keyPrefix}-hit`));
+
+  const nextStart = selected.match.index + selected.match[0].length;
+  if (nextStart < text.length) {
+    nodes.push(...renderInline(text.slice(nextStart), `${keyPrefix}-post`, depth));
+  }
+
+  return nodes;
+}
+
+function inlinePair(
+  pattern: RegExp,
+  tag: "strong" | "em" | "u" | "s" | "spoiler",
+): {
+  pattern: RegExp;
+  render: (match: RegExpExecArray, key: string) => ReactNode;
+} {
+  return {
+    pattern,
+    render(match, key) {
+      const children = renderInline(match[1], `${key}-inner`);
+      if (tag === "strong") return <strong key={key}>{children}</strong>;
+      if (tag === "em") return <em key={key}>{children}</em>;
+      if (tag === "u") return <u key={key}>{children}</u>;
+      if (tag === "s") return <s key={key}>{children}</s>;
+      return (
+        <span key={key} className="spoiler" tabIndex={0}>
+          {children}
+        </span>
+      );
+    },
+  };
+}
+
+function splitLineBreaks(text: string, keyPrefix: string): ReactNode[] {
+  const parts = text.split("\n");
+  return parts.flatMap((part, index) =>
+    index === 0
+      ? [part]
+      : [<br key={`${keyPrefix}-br-${index}`} />, part],
   );
 }
 

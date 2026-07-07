@@ -68,6 +68,34 @@ The UI character importer accepts SillyTavern JSON cards and PNG character
 cards. If a card contains an embedded `character_book`, it is imported as a
 regular lorebook alongside the character.
 
+## SillyTavern Compatibility Notes
+
+The runtime now handles the parts of ST assets that matter most during chat:
+
+- Character Card V2 fields: first message, alternate greetings, examples,
+  system prompt, post-history instructions, creator metadata, tags, extensions,
+  and embedded character books.
+- Opening messages: new conversations are seeded with the character greeting
+  before the first user turn.
+- Macros: common placeholders such as `{{char}}`, `{{user}}`,
+  `{{scenario}}`, `{{charFirstMessage}}`, recent-message macros, local
+  variables, simple random/roll helpers, and legacy `<USER>/<BOT>/<CHAR>`
+  markers are expanded in prompts, greetings, lore, and regex find strings.
+- World Info: regex keys, optional filters, scan depth, case sensitivity,
+  whole-word matching, constants, insertion order, probability, and recursive
+  activation are supported. Matched entries are recorded in `pipeline_trace`.
+- Regex scripts: scoped character regex scripts and global settings regex
+  scripts can run on user input, AI output, injected World Info, and outgoing
+  prompts with `{{match}}`, capture groups, trim strings, and macro-aware find
+  patterns.
+- Chat rendering: the local UI safely renders common Markdown and a small safe
+  HTML subset for chat messages, including emphasis, lists, quotes, code, links,
+  images, spoilers, and line breaks.
+
+Vector storage matching, full STscript automation, timed effects, and full
+SillyTavern prompt-manager parity are intentionally not implemented in this
+slice.
+
 ## Runtime Shape
 
 One user message runs this pipeline:

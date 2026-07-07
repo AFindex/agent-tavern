@@ -19,6 +19,10 @@ const DEFAULT_MAX_TOKENS = 1_000_000;
 
 export function createPiStreamFn(settings: Settings): StreamFn {
   return (model, context, options) => {
+    if (model.provider === "mock") {
+      return createMockStream(model, context);
+    }
+
     const providerConfig = settings.providers[model.provider];
     if (!providerConfig?.apiKey) {
       throw new Error(`${model.provider} API key is missing.`);
@@ -33,6 +37,78 @@ export function createPiStreamFn(settings: Settings): StreamFn {
       maxRetryDelayMs: providerConfig.timeoutMs,
     });
   };
+}
+
+function createMockStream(
+  model: Model<any>,
+  context: Context,
+): ReturnType<StreamFn> {
+  const text = createMockReply(context);
+  const message = {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text }],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: estimateTextTokens(context.systemPrompt ?? ""),
+      output: estimateTextTokens(text),
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens:
+        estimateTextTokens(context.systemPrompt ?? "") + estimateTextTokens(text),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop" as const,
+    timestamp: Date.now(),
+  };
+
+  return ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: "start" as const, partial: message };
+      yield { type: "text_start" as const, contentIndex: 0, partial: message };
+      yield {
+        type: "text_delta" as const,
+        contentIndex: 0,
+        delta: text,
+        partial: message,
+      };
+      yield {
+        type: "text_end" as const,
+        contentIndex: 0,
+        content: text,
+        partial: message,
+      };
+      yield { type: "done" as const, reason: "stop" as const, message };
+    },
+    async result() {
+      return message;
+    },
+  } as unknown) as ReturnType<StreamFn>;
+}
+
+function createMockReply(context: Context): string {
+  const lastUser = [...context.messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const input =
+    typeof lastUser?.content === "string"
+      ? lastUser.content
+      : Array.isArray(lastUser?.content)
+        ? lastUser.content
+            .map((part) => (part.type === "text" ? part.text : ""))
+            .join("")
+        : "";
+
+  if (input.length === 0) {
+    return "The room waits in a careful hush.";
+  }
+
+  return `*The scene catches on the detail you offered.*\n\n${input}\n\n\"I noticed that,\" the character says, keeping the thread of the moment alive.`;
+}
+
+function estimateTextTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
 }
 
 export function createPiModel(
@@ -114,4 +190,3 @@ export function buildPiContext(
     tools: tools.length > 0 ? (tools as any) : undefined,
   };
 }
-

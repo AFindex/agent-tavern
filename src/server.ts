@@ -12,6 +12,7 @@ import {
   normalizeEmbeddedCharacterBook,
 } from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
+import { renderOpeningMessage } from "./st/prompt.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 import type {
   AgentTurnResult,
@@ -273,7 +274,7 @@ async function route(
     const body = await readBody<CreateConversationBody>(request);
     const characterId = requireString(body.characterId, "characterId");
     const lorebookIds = Array.isArray(body.lorebookIds) ? body.lorebookIds : [];
-    await store.loadCharacter(characterId);
+    const character = await store.loadCharacter(characterId);
 
     for (const lorebookId of lorebookIds) {
       await store.loadLorebook(lorebookId);
@@ -287,6 +288,14 @@ async function route(
     });
     config.model = settings.defaultModel;
     await store.saveConversationConfig(config);
+    await store.seedOpeningMessage(
+      config.id,
+      renderOpeningMessage(
+        character,
+        settings,
+        await store.loadConversationState(config.id),
+      ),
+    );
 
     sendJson(response, 200, {
       snapshot: await loadSnapshot(config.id),
@@ -488,6 +497,14 @@ async function runDemoTurn(): Promise<{
   });
   config.model = settings.defaultModel;
   await store.saveConversationConfig(config);
+  await store.seedOpeningMessage(
+    config.id,
+    renderOpeningMessage(
+      character,
+      settings,
+      await store.loadConversationState(config.id),
+    ),
+  );
 
   const success = await piRuntime.runTurn(
     config.id,

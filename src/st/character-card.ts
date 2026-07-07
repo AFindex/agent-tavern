@@ -2,6 +2,7 @@ import type { CharacterProfile, JsonValue, Lorebook } from "../types.js";
 import { isRecord, readString, toJsonValue } from "../lib/json.js";
 import { nowIso, stableId } from "../lib/ids.js";
 import { normalizeLorebook } from "./lorebook.js";
+import { normalizeRegexScripts } from "./regex.js";
 
 export function normalizeCharacterCard(
   raw: unknown,
@@ -28,9 +29,15 @@ export function normalizeCharacterCard(
     personality: readString(data.personality),
     scenario: readString(data.scenario),
     firstMessage: readString(data.first_mes),
+    alternateGreetings: readStringArray(data.alternate_greetings),
     messageExamples: readString(data.mes_example),
     systemPrompt: readString(data.system_prompt),
+    postHistoryInstructions: readString(data.post_history_instructions),
     creatorNotes: readString(data.creator_notes),
+    creator: readString(data.creator),
+    characterVersion: readString(data.character_version),
+    tags: readStringArray(data.tags),
+    regexScripts: normalizeRegexScripts(data.extensions),
     extensions,
     source: {
       kind: "sillytavern",
@@ -38,6 +45,11 @@ export function normalizeCharacterCard(
       importedAt: nowIso(),
     },
   };
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 export function normalizeEmbeddedCharacterBook(

@@ -112,6 +112,13 @@ export const DEFAULT_SETTINGS: Settings = {
   agent: {
     recentMessageLimit: 12,
     maxLoreEntries: 8,
+    userName: "User",
+    loreScanDepth: 4,
+    loreRecursiveScanning: true,
+    loreMaxRecursionSteps: 3,
+    loreCaseSensitive: false,
+    loreMatchWholeWords: true,
+    regexScripts: [],
     storePromptTrace: true,
     validationEnabled: true,
     maxOutputChars: 4000,

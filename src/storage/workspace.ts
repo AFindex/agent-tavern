@@ -54,7 +54,7 @@ export class WorkspaceStore {
 
   async loadCharacter(id: string): Promise<CharacterProfile> {
     const raw = await readFile(path.join(this.characterDir(), `${id}.json`), "utf8");
-    return JSON.parse(raw) as CharacterProfile;
+    return normalizeStoredCharacter(JSON.parse(raw) as Partial<CharacterProfile>);
   }
 
   async listCharacters(): Promise<CharacterProfile[]> {
@@ -63,7 +63,7 @@ export class WorkspaceStore {
     const characters = await Promise.all(
       files.map(async (file) => {
         const raw = await readFile(path.join(this.characterDir(), file), "utf8");
-        return JSON.parse(raw) as CharacterProfile;
+        return normalizeStoredCharacter(JSON.parse(raw) as Partial<CharacterProfile>);
       }),
     );
 
@@ -100,7 +100,7 @@ export class WorkspaceStore {
 
   async loadLorebook(id: string): Promise<Lorebook> {
     const raw = await readFile(path.join(this.lorebookDir(), `${id}.json`), "utf8");
-    return JSON.parse(raw) as Lorebook;
+    return normalizeStoredLorebook(JSON.parse(raw) as Partial<Lorebook>);
   }
 
   async listLorebooks(): Promise<Lorebook[]> {
@@ -109,7 +109,7 @@ export class WorkspaceStore {
     const lorebooks = await Promise.all(
       files.map(async (file) => {
         const raw = await readFile(path.join(this.lorebookDir(), file), "utf8");
-        return JSON.parse(raw) as Lorebook;
+        return normalizeStoredLorebook(JSON.parse(raw) as Partial<Lorebook>);
       }),
     );
 
@@ -148,6 +148,24 @@ export class WorkspaceStore {
     await writeFile(this.eventsPath(config.id), "", "utf8");
 
     return config;
+  }
+
+  async seedOpeningMessage(
+    conversationId: string,
+    content: string,
+  ): Promise<void> {
+    const trimmed = content.trim();
+    if (trimmed.length === 0) return;
+
+    const messages = await this.loadRecentMessages(conversationId, 1);
+    if (messages.some((message) => message.role === "assistant")) {
+      return;
+    }
+
+    await this.appendEvent(conversationId, "assistant_output", {
+      content: trimmed,
+      opening: true,
+    });
   }
 
   async loadConversationConfig(id: string): Promise<ConversationConfig> {
@@ -325,6 +343,77 @@ function normalizeConversationConfig(
     },
     createdAt: value.createdAt ?? now,
     updatedAt: value.updatedAt ?? value.createdAt ?? now,
+  };
+}
+
+function normalizeStoredCharacter(
+  value: Partial<CharacterProfile>,
+): CharacterProfile {
+  return {
+    id: value.id ?? "",
+    name: value.name ?? "Unnamed Character",
+    description: value.description ?? "",
+    personality: value.personality ?? "",
+    scenario: value.scenario ?? "",
+    firstMessage: value.firstMessage ?? "",
+    alternateGreetings: Array.isArray(value.alternateGreetings)
+      ? value.alternateGreetings
+      : [],
+    messageExamples: value.messageExamples ?? "",
+    systemPrompt: value.systemPrompt ?? "",
+    postHistoryInstructions: value.postHistoryInstructions ?? "",
+    creatorNotes: value.creatorNotes ?? "",
+    creator: value.creator ?? "",
+    characterVersion: value.characterVersion ?? "",
+    tags: Array.isArray(value.tags) ? value.tags : [],
+    regexScripts: Array.isArray(value.regexScripts) ? value.regexScripts : [],
+    extensions: value.extensions ?? {},
+    source: value.source ?? { kind: "internal", importedAt: nowIso() },
+  };
+}
+
+function normalizeStoredLorebook(value: Partial<Lorebook>): Lorebook {
+  return {
+    id: value.id ?? "",
+    name: value.name ?? "Unnamed Lorebook",
+    description: value.description ?? "",
+    scanDepth: value.scanDepth,
+    tokenBudget: value.tokenBudget,
+    recursiveScanning: value.recursiveScanning,
+    extensions: value.extensions ?? {},
+    entries: Array.isArray(value.entries)
+      ? value.entries.map((entry, index) => ({
+          id: entry.id ?? `entry_${entry.uid ?? index + 1}`,
+          uid: entry.uid ?? index + 1,
+          title: entry.title ?? `Entry ${entry.uid ?? index + 1}`,
+          keys: Array.isArray(entry.keys) ? entry.keys : [],
+          secondaryKeys: Array.isArray(entry.secondaryKeys)
+            ? entry.secondaryKeys
+            : [],
+          content: entry.content ?? "",
+          enabled: entry.enabled ?? true,
+          constant: entry.constant ?? false,
+          selective: entry.selective ?? false,
+          selectiveLogic: entry.selectiveLogic ?? "and_any",
+          caseSensitive: entry.caseSensitive,
+          matchWholeWords: entry.matchWholeWords,
+          scanDepth: entry.scanDepth,
+          position: entry.position ?? "after_char",
+          depth: entry.depth,
+          outletName: entry.outletName,
+          probability: entry.probability ?? 100,
+          useProbability: entry.useProbability ?? false,
+          group: entry.group ?? "",
+          groupWeight: entry.groupWeight ?? 100,
+          excludeRecursion: entry.excludeRecursion ?? false,
+          preventRecursion: entry.preventRecursion ?? false,
+          delayUntilRecursion: entry.delayUntilRecursion ?? false,
+          priority: entry.priority ?? 0,
+          insertionOrder: entry.insertionOrder ?? index,
+          extensions: entry.extensions ?? {},
+        }))
+      : [],
+    source: value.source ?? { kind: "internal", importedAt: nowIso() },
   };
 }
 
