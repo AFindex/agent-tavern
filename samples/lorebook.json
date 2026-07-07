@@ -1,0 +1,29 @@
+{
+  "name": "Archive of Rain",
+  "entries": [
+    {
+      "uid": 1,
+      "key": ["Archive", "Rain"],
+      "keysecondary": [],
+      "comment": "The Archive",
+      "content": "The Archive of Rain is a building that stores memories as weather. Rooms change when old promises are spoken aloud.",
+      "constant": false,
+      "selective": false,
+      "disable": false,
+      "priority": 10,
+      "order": 100
+    },
+    {
+      "uid": 2,
+      "key": ["clock tower", "bell"],
+      "keysecondary": ["midnight", "storm"],
+      "comment": "Clock Tower",
+      "content": "The clock tower above the Archive only rings for events that have not happened yet.",
+      "constant": false,
+      "selective": false,
+      "disable": false,
+      "priority": 20,
+      "order": 90
+    }
+  ]
+}
