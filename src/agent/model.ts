@@ -208,7 +208,13 @@ function buildChatBody(
     return body;
   }
 
-  body.max_tokens = providerConfig.maxTokens ?? generation.maxOutputTokens;
+  // Only send max_tokens when the user explicitly sets a positive value.
+  // This avoids provider-side caps on context/output windows and lets the
+  // upstream API use its own default (e.g. DeepSeek supports up to 1M
+  // context when max_tokens is not artificially constrained).
+  if (providerConfig.maxTokens && providerConfig.maxTokens > 0) {
+    body.max_tokens = providerConfig.maxTokens;
+  }
 
   if (provider === "deepseek") {
     body.thinking = { type: providerConfig.thinking ?? "enabled" };
