@@ -13,6 +13,7 @@ import {
 } from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
 import { renderOpeningMessage } from "./st/prompt.js";
+import { getPluginApiShim } from "./st/plugin-api-shims.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 import type {
   AgentTurnResult,
@@ -90,6 +91,12 @@ const store = new WorkspaceStore(cwd());
 const settings = await store.loadSettings();
 const piRuntime = new PiRuntime({ store, settings });
 const port = Number(process.env.PORT ?? 8787);
+const SILLYTAVERN_PUBLIC_BASE =
+  "https://raw.githubusercontent.com/SillyTavern/SillyTavern/release/public/";
+const JS_SLASH_RUNNER_BASE =
+  "https://raw.githubusercontent.com/N0VI028/JS-Slash-Runner/main/";
+const ST_PROMPT_TEMPLATE_BASE =
+  "https://raw.githubusercontent.com/zonde306/ST-Prompt-Template/main/";
 
 const server = createServer(async (request, response) => {
   try {
@@ -209,6 +216,26 @@ async function route(
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/version") {
+    sendJson(response, 200, { pkgVersion: "agent-tavern" });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/st-public/")) {
+    await proxySillyTavernPublicAsset(url.pathname, response);
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/script.js" ||
+      url.pathname === "/lib.js" ||
+      url.pathname.startsWith("/scripts/"))
+  ) {
+    await proxySillyTavernPublicAsset(`/st-public${url.pathname}`, response);
     return;
   }
 
@@ -401,6 +428,73 @@ async function route(
   }
 
   sendJson(response, 404, { error: "Not found" });
+}
+
+async function proxySillyTavernPublicAsset(
+  pathname: string,
+  response: ServerResponse,
+): Promise<void> {
+  const assetPath = pathname.replace(/^\/st-public\//, "");
+  if (!isSafeAssetPath(assetPath)) {
+    sendJson(response, 400, { error: "Invalid asset path." });
+    return;
+  }
+
+  const pluginPrefix = "scripts/extensions/third-party/JS-Slash-Runner/";
+  const promptTemplatePrefix = "scripts/extensions/third-party/ST-Prompt-Template/";
+  const shim = getPluginApiShim(assetPath);
+  if (shim !== null) {
+    response.writeHead(200, {
+      "content-type": "text/javascript; charset=utf-8",
+      "access-control-allow-origin": "*",
+      "cache-control": "no-store",
+    });
+    response.end(shim);
+    return;
+  }
+
+  const sourceUrl = assetPath.startsWith(pluginPrefix)
+    ? `${JS_SLASH_RUNNER_BASE}${assetPath.slice(pluginPrefix.length)}`
+    : assetPath.startsWith(promptTemplatePrefix)
+      ? `${ST_PROMPT_TEMPLATE_BASE}${assetPath.slice(promptTemplatePrefix.length)}`
+      : `${SILLYTAVERN_PUBLIC_BASE}${assetPath}`;
+
+  const upstream = await fetch(sourceUrl);
+  if (!upstream.ok) {
+    sendJson(response, upstream.status, {
+      error: `Could not load upstream asset: ${assetPath}`,
+    });
+    return;
+  }
+
+  response.writeHead(200, {
+    "content-type": contentTypeForAsset(assetPath),
+    "access-control-allow-origin": "*",
+    "cache-control": "public, max-age=300",
+  });
+  response.end(Buffer.from(await upstream.arrayBuffer()));
+}
+
+function isSafeAssetPath(assetPath: string): boolean {
+  return (
+    assetPath.length > 0 &&
+    !assetPath.includes("..") &&
+    !assetPath.startsWith("/") &&
+    /^[A-Za-z0-9._~!$&'()*+,;=:@/-]+$/.test(assetPath)
+  );
+}
+
+function contentTypeForAsset(assetPath: string): string {
+  if (assetPath.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (assetPath.endsWith(".mjs")) return "text/javascript; charset=utf-8";
+  if (assetPath.endsWith(".css")) return "text/css; charset=utf-8";
+  if (assetPath.endsWith(".html")) return "text/html; charset=utf-8";
+  if (assetPath.endsWith(".json")) return "application/json; charset=utf-8";
+  if (assetPath.endsWith(".svg")) return "image/svg+xml";
+  if (assetPath.endsWith(".png")) return "image/png";
+  if (assetPath.endsWith(".jpg") || assetPath.endsWith(".jpeg")) return "image/jpeg";
+  if (assetPath.endsWith(".woff2")) return "font/woff2";
+  return "text/plain; charset=utf-8";
 }
 
 async function loadOverview(): Promise<OverviewResponse> {

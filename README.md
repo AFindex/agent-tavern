@@ -91,10 +91,27 @@ The runtime now handles the parts of ST assets that matter most during chat:
 - Chat rendering: the local UI safely renders common Markdown and a small safe
   HTML subset for chat messages, including emphasis, lists, quotes, code, links,
   images, spoilers, and line breaks.
+- Direct plugin loading: the local UI exposes a sandboxed "酒馆助手" host. It
+  loads the real Prompt Template / 提示词模板 bundle from
+  `zonde306/ST-Prompt-Template` first, then the real JS-Slash-Runner / Tavern
+  Helper bundle from `N0VI028/JS-Slash-Runner`, through the local
+  `/st-public/...` proxy instead of reimplementing either plugin bundle. Their
+  SillyTavern import paths are served by Agent Tavern shim modules with matching
+  export names; see
+  `docs/st-plugin-api-shims.md`.
 
-Vector storage matching, full STscript automation, timed effects, and full
-SillyTavern prompt-manager parity are intentionally not implemented in this
-slice.
+Still missing for direct plugin parity:
+
+- The SillyTavern host API shim is incomplete. The real plugin bundles are
+  loaded in an iframe, but many ST globals, DOM anchors, slash-command APIs,
+  variable persistence APIs, and world-info mutation APIs are not implemented
+  yet.
+- Prompt Manager is currently loaded as real SillyTavern source when requested
+  by proxied plugin imports, but Agent Tavern's Pi prompt composition is not yet
+  delegated to that real Prompt Manager runtime.
+- Vector storage matching, full STscript automation, timed effects, Quick Reply
+  automation, full Author's Note/depth prompt behavior, and complete Tavern
+  Helper JS-Slash-Runner runtime parity remain incomplete.
 
 ## Runtime Shape
 

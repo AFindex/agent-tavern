@@ -577,6 +577,7 @@ input:disabled {
 }
 
 .chat-head {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -635,6 +636,7 @@ input:disabled {
 }
 
 .error-line {
+  grid-row: 2;
   margin: 8px 14px 0;
   padding: 6px 10px;
   border: 1px solid rgba(224, 108, 108, 0.3);
@@ -645,6 +647,7 @@ input:disabled {
 }
 
 .messages {
+  grid-row: 3;
   display: grid;
   align-content: start;
   gap: 16px;
@@ -833,6 +836,25 @@ input:disabled {
   object-fit: contain;
 }
 
+.message-content.plugin-rendered {
+  white-space: normal;
+}
+
+.message-content.plugin-rendered table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.message-content.plugin-rendered td,
+.message-content.plugin-rendered th {
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.message-content.plugin-rendered details {
+  margin: 0;
+}
+
 .message .time {
   font-size: 10px;
   color: var(--text-3);
@@ -851,6 +873,7 @@ input:disabled {
 }
 
 .composer-area {
+  grid-row: 4;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
@@ -1406,6 +1429,49 @@ button:has(.lucide-loader-2) svg,
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
+}
+
+.plugin-host {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.plugin-host-toggle {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.plugin-host iframe {
+  width: min(520px, calc(100vw - 36px));
+  height: min(620px, calc(100vh - 96px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #111316;
+  box-shadow: var(--shadow);
+}
+
+.plugin-host:not(.open) iframe {
+  position: absolute;
+  right: 0;
+  bottom: 38px;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: none;
 }
 
 @media (max-width: 1080px) {

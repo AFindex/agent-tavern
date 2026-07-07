@@ -15,6 +15,26 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      "/st-public": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+      "/scripts": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+      "/script.js": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+      "/lib.js": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+      "/version": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
     },
   },
 });

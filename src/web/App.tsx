@@ -92,6 +92,7 @@ export function App() {
   const [expandedLorebooks, setExpandedLorebooks] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [globalDragActive, setGlobalDragActive] = useState(false);
+  const [pluginRenderedMessages, setPluginRenderedMessages] = useState<Record<number, string>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeConversationId = snapshot?.config.id ?? "";
@@ -137,6 +138,7 @@ export function App() {
 
   useEffect(() => {
     if (snapshot) {
+      setPluginRenderedMessages({});
       setDraftState({
         summary: snapshot.state.summary,
         currentScene: snapshot.state.currentScene,
@@ -839,7 +841,10 @@ export function App() {
             >
               <div className="message-inner">
                 <span className="role">{roleLabel(messageItem.role)}</span>
-                <MessageContent text={messageItem.content} />
+                <MessageContent
+                  text={messageItem.content}
+                  pluginHtml={pluginRenderedMessages[index]}
+                />
                 <small className="time">{formatTime(messageItem.timestamp)}</small>
               </div>
             </div>
@@ -1221,8 +1226,474 @@ export function App() {
         onDrop={handleGlobalDrop}
         onLeave={() => setGlobalDragActive(false)}
       />
+      <TavernPluginHost
+        snapshot={snapshot}
+        overview={overview}
+        userName={settings.agent.userName}
+        onRenderedMessages={setPluginRenderedMessages}
+      />
     </div>
   );
+}
+
+function TavernPluginHost(props: {
+  snapshot: ConversationSnapshot | null;
+  overview: Overview;
+  userName: string;
+  onRenderedMessages: (messages: Record<number, string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const pluginContext = useMemo(
+    () => buildPluginContext(props.snapshot, props.overview, props.userName),
+    [props.snapshot, props.overview, props.userName],
+  );
+  const srcDoc = useMemo(
+    () => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="stylesheet" href="/st-public/scripts/extensions/third-party/JS-Slash-Runner/dist/index.css" />
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #111316; color: #e7e1d4; font: 13px system-ui, sans-serif; }
+      body { padding: 10px; }
+      #agent-tavern-plugin-root { min-height: 100%; }
+      .agent-tavern-host-note { color: #9d988d; font-size: 12px; margin-bottom: 8px; }
+      #chat { display: grid; gap: 8px; }
+      .mes { padding: 8px; border: 1px solid #2a2d33; border-radius: 6px; background: #171a1f; }
+      .mes[is_user="true"] { background: #2a2419; }
+      .mes_head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: #c9b47a; font-size: 11px; font-weight: 700; }
+      .avatar { width: 18px; height: 18px; border-radius: 50%; overflow: hidden; background: #2a2d33; }
+      .avatar img { width: 100%; height: 100%; object-fit: cover; }
+      .name_text { display: inline; }
+      .mesIDDisplay, .tokenCounterDisplay, .swipes-counter { color: #80796b; font-size: 10px; font-weight: 500; }
+      .mes_text { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .mes_text details { margin: 6px 0; }
+      .mes_text summary { cursor: pointer; font-weight: 700; }
+      #extensions_settings:empty { display: none; }
+      .agent-tavern-hidden-st-controls { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="agent-tavern-host-note">JS-Slash-Runner / 酒馆助手 is loaded from its original extension bundle.</div>
+    <div class="agent-tavern-hidden-st-controls">
+      <button id="character_replace_file"></button>
+      <button id="export_button"></button>
+      <button id="world_button"></button>
+      <select id="character_world"></select>
+      <textarea id="send_textarea"></textarea>
+    </div>
+    <div id="chat"></div>
+    <div id="extensions_settings"></div>
+    <div id="agent-tavern-plugin-root"></div>
+    <script>
+      window.__agentTavernPluginHost = true;
+      window.__agentTavernLatestContext = {};
+      window.TavernHelper = window.TavernHelper || { _bind: {} };
+      window.hljs = window.hljs || { highlightElement: function(){}, highlightAuto: function(value){ return { value: String(value || '') }; } };
+      window.DOMPurify = window.DOMPurify || { sanitize: function(value){ return String(value || ''); } };
+      window.SillyTavern = window.SillyTavern || {
+        getContext: function() {
+          const context = window.__agentTavernLatestContext || {};
+          return {
+            characters: context.characters || [],
+            chat: context.chat || [],
+            name1: context.name1 || 'User',
+            name2: context.name2 || 'Character',
+            characterId: context.this_chid || null,
+            chatId: context.currentChatId || 'agent-tavern-chat',
+            extensionSettings: window.__agentTavernExtensionSettings || {},
+            writeExtensionField: async function(){ return true; },
+          };
+        },
+      };
+      window.toastr = {
+        info: console.info.bind(console),
+        success: console.info.bind(console),
+        warning: console.warn.bind(console),
+        error: console.error.bind(console),
+      };
+      if (!window._) {
+        window._ = {
+          get: function(object, path, fallback) { const parts = Array.isArray(path) ? path : String(path).replace(/\\[(\\w+)\\]/g, '.$1').split('.').filter(Boolean); let cur = object; for (const part of parts) { if (cur == null || !(part in Object(cur))) return fallback; cur = cur[part]; } return cur === undefined ? fallback : cur; },
+          set: function(object, path, value) { const parts = Array.isArray(path) ? path : String(path).replace(/\\[(\\w+)\\]/g, '.$1').split('.').filter(Boolean); let cur = object; parts.slice(0, -1).forEach(function(part){ cur[part] = cur[part] || {}; cur = cur[part]; }); cur[parts[parts.length - 1]] = value; return object; },
+          has: function(object, path) { return this.get(object, path) !== undefined; },
+          unset: function(object, path) { const parts = Array.isArray(path) ? path : String(path).split('.'); const key = parts.pop(); const parent = parts.reduce(function(cur, part){ return cur && cur[part]; }, object); if (parent && key) delete parent[key]; return true; },
+          merge: Object.assign,
+          cloneDeep: function(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); },
+          range: function(start, end) { if (end === undefined) { end = start; start = 0; } return Array.from({ length: Math.max(0, end - start) }, function(_, index){ return start + index; }); },
+          includes: function(collection, value) { return Array.isArray(collection) || typeof collection === 'string' ? collection.includes(value) : Object.values(collection || {}).includes(value); },
+          reject: function(array, predicate) { return (array || []).filter(function(item){ return !predicate(item); }); },
+          debounce: function(fn, wait) { let timer; return function(){ const args = arguments; clearTimeout(timer); timer = setTimeout(function(){ fn.apply(null, args); }, wait || 0); }; },
+          isArray: Array.isArray,
+          isPlainObject: function(value) { return Object.prototype.toString.call(value) === '[object Object]'; },
+          isString: function(value) { return typeof value === 'string'; },
+          castArray: function(value) { return Array.isArray(value) ? value : [value]; },
+        };
+      }
+      if (!window.jQuery) {
+        window.$ = window.jQuery = function(selector, context) {
+        if (typeof selector === 'function') {
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', selector);
+          else queueMicrotask(selector);
+          return window.jQuery([]);
+        }
+        const root = context || document;
+        const nodes = typeof selector === 'string'
+          ? selector.trim().startsWith('<')
+            ? [document.createRange().createContextualFragment(selector).firstElementChild].filter(Boolean)
+            : Array.from(root.querySelectorAll(selector))
+          : selector instanceof NodeList || Array.isArray(selector)
+            ? Array.from(selector)
+            : [selector].filter(Boolean);
+        return {
+          length: nodes.length,
+          0: nodes[0],
+          toArray: function() { return nodes; },
+          get: function(index) { return nodes[index]; },
+          each: function(handler) { nodes.forEach(function(node, index){ handler.call(node, index, node); }); return this; },
+          map: function(handler) { return window.jQuery(nodes.map(function(node, index){ return handler.call(node, index, node); }).filter(Boolean)); },
+          filter: function(handler) { return window.jQuery(typeof handler === 'string' ? nodes.filter(function(node){ return node.matches && node.matches(handler); }) : nodes.filter(function(node, index){ return handler.call(node, index, node); })); },
+          find: function(value) { return window.jQuery(nodes.flatMap(function(node){ return Array.from(node.querySelectorAll ? node.querySelectorAll(value) : []); })); },
+          children: function(value) { const all = nodes.flatMap(function(node){ return Array.from(node.children || []); }); return window.jQuery(value ? all.filter(function(node){ return node.matches(value); }) : all); },
+          parent: function(value) { const all = nodes.map(function(node){ return node.parentElement; }).filter(Boolean); return window.jQuery(value ? all.filter(function(node){ return node.matches(value); }) : all); },
+          closest: function(value) { return window.jQuery(nodes.map(function(node){ return node.closest && node.closest(value); }).filter(Boolean)); },
+          first: function() { return window.jQuery(nodes.slice(0, 1)); },
+          last: function() { return window.jQuery(nodes.slice(-1)); },
+          is: function(value) { return !!nodes[0] && nodes[0].matches && nodes[0].matches(value); },
+          on: function(type, handler) { nodes.forEach(node => node.addEventListener && node.addEventListener(type, handler)); return this; },
+          off: function(type, handler) { nodes.forEach(node => node.removeEventListener && node.removeEventListener(type, handler)); return this; },
+          trigger: function(type) { nodes.forEach(node => node.dispatchEvent && node.dispatchEvent(new Event(type, { bubbles: true }))); return this; },
+          click: function(handler) { return handler ? this.on('click', handler) : this.trigger('click'); },
+          append: function(child) { nodes.forEach(node => node.append(child instanceof Node ? child : document.createRange().createContextualFragment(String(child)))); return this; },
+          appendTo: function(target) { const parent = typeof target === 'string' ? document.querySelector(target) : target; nodes.forEach(node => parent && parent.append(node)); return this; },
+          empty: function() { nodes.forEach(node => node.replaceChildren()); return this; },
+          remove: function() { nodes.forEach(node => node.remove()); return this; },
+          wrap: function(html) { nodes.forEach(function(node){ const wrapper = document.createRange().createContextualFragment(String(html)).firstElementChild; if (!wrapper || !node.parentNode) return; node.parentNode.insertBefore(wrapper, node); wrapper.append(node); }); return this; },
+          text: function(value) { if (value === undefined) return nodes[0]?.textContent ?? ''; nodes.forEach(node => node.textContent = value); return this; },
+          html: function(value) { if (value === undefined) return nodes[0]?.innerHTML ?? ''; nodes.forEach(node => node.innerHTML = value); return this; },
+          val: function(value) { if (value === undefined) return nodes[0]?.value ?? ''; nodes.forEach(node => node.value = value); return this; },
+          attr: function(name, value) { if (typeof name === 'object') { nodes.forEach(node => Object.entries(name).forEach(([key, val]) => node.setAttribute(key, String(val)))); return this; } if (value === undefined) return nodes[0]?.getAttribute?.(name); nodes.forEach(node => node.setAttribute && node.setAttribute(name, String(value))); return this; },
+          prop: function(name, value) { if (value === undefined) return nodes[0]?.[name]; nodes.forEach(node => node[name] = value); return this; },
+          css: function(name, value) { if (value === undefined) return nodes[0]?.style?.[name]; nodes.forEach(node => node.style && (node.style[name] = value)); return this; },
+          data: function(name, value) { if (value === undefined) return nodes[0]?.dataset?.[name]; nodes.forEach(node => node.dataset && (node.dataset[name] = value)); return this; },
+          hasClass: function(value) { return !!nodes[0]?.classList?.contains(value); },
+          addClass: function(value) { nodes.forEach(node => node.classList && node.classList.add(...String(value).split(/\\s+/).filter(Boolean))); return this; },
+          removeClass: function(value) { nodes.forEach(node => node.classList && node.classList.remove(...String(value).split(/\\s+/).filter(Boolean))); return this; },
+          toggleClass: function(value, force) { nodes.forEach(node => node.classList && node.classList.toggle(value, force)); return this; },
+        };
+      };
+      }
+      function formatAgentTavernMessage(value) {
+        const text = String(value || '');
+        let html = '';
+        let last = 0;
+        const tick = String.fromCharCode(96);
+        const fence = new RegExp(tick + '{3}([^\\\\n' + tick + ']*)\\\\n?([\\\\s\\\\S]*?)' + tick + '{3}', 'g');
+        let match;
+        function inline(part) {
+          return String(part)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<%', '&lt;%')
+            .replaceAll('%>', '%&gt;')
+            .replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>')
+            .replace(/\\*([^*\\n]+?)\\*/g, '<em>$1</em>')
+            .replace(/~~([\\s\\S]+?)~~/g, '<s>$1</s>')
+            .replace(/\\|\\|([\\s\\S]+?)\\|\\|/g, '<span class="spoiler">$1</span>')
+            .replace(/\\n/g, '<br>');
+        }
+        while ((match = fence.exec(text))) {
+          if (match.index > last) html += inline(text.slice(last, match.index));
+          html += '<pre><code>' + String(match[2] || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') + '</code></pre>';
+          last = fence.lastIndex;
+        }
+        if (last < text.length) html += inline(text.slice(last));
+        return html;
+      }
+      function renderAgentTavernChat(context) {
+        window.__agentTavernLatestContext = context || {};
+        const chat = document.getElementById('chat');
+        if (!chat) return;
+        chat.replaceChildren(...(context.chat || []).map(function(message, index) {
+          const row = document.createElement('div');
+          row.className = 'mes';
+          row.id = 'chat-' + index;
+          row.setAttribute('mesid', String(index));
+          row.setAttribute('is_user', message.is_user ? 'true' : 'false');
+          row.setAttribute('is_system', message.is_system ? 'true' : 'false');
+          const head = document.createElement('div');
+          head.className = 'mes_head';
+          const avatar = document.createElement('div');
+          avatar.className = 'avatar';
+          const img = document.createElement('img');
+          img.alt = '';
+          img.src = message.is_user ? '/st-public/img/user-default.png' : '/st-public/img/ai4.png';
+          avatar.append(img);
+          const nameWrap = document.createElement('span');
+          nameWrap.className = 'ch_name';
+          const name = document.createElement('span');
+          name.className = 'name_text';
+          name.textContent = message.name || '';
+          nameWrap.append(name);
+          const id = document.createElement('span');
+          id.className = 'mesIDDisplay';
+          id.textContent = '#' + index;
+          const token = document.createElement('span');
+          token.className = 'tokenCounterDisplay';
+          const swipes = document.createElement('span');
+          swipes.className = 'swipes-counter';
+          head.append(avatar, nameWrap, id, token, swipes);
+          const text = document.createElement('div');
+          text.className = 'mes_text';
+          text.dataset.raw = message.mes || '';
+          text.innerHTML = formatAgentTavernMessage(message.mes || '');
+          row.append(head, text);
+          return row;
+        }));
+        schedulePluginRenderPass();
+      }
+      async function emitPluginRenderEvents() {
+        const source = window.__agentTavernEventSource;
+        const types = window.__agentTavernEventTypes || {};
+        if (!source || !source.emit) return false;
+        await source.emit(types.CHAT_LOADED || 'chatLoaded', window.__agentTavernLatestContext.currentChatId || 'agent-tavern-chat');
+        const rows = Array.from(document.querySelectorAll('#chat > .mes'));
+        for (const row of rows) {
+          const id = row.getAttribute('mesid');
+          const eventName = row.getAttribute('is_user') === 'true'
+            ? (types.USER_MESSAGE_RENDERED || 'user_message_rendered')
+            : (types.CHARACTER_MESSAGE_RENDERED || 'character_message_rendered');
+          await source.emit(eventName, id);
+        }
+        scheduleRenderedChatPost();
+        return true;
+      }
+      function schedulePluginRenderPass() {
+        scheduleRenderedChatPost();
+        [20, 120, 400, 1200].forEach(function(delay) {
+          window.setTimeout(function() { void emitPluginRenderEvents(); }, delay);
+        });
+      }
+      window.__agentTavernSchedulePluginRenderPass = schedulePluginRenderPass;
+      let renderedChatTimer = 0;
+      function postRenderedChat() {
+        const rendered = {};
+        document.querySelectorAll('#chat .mes').forEach(function(row) {
+          const id = Number(row.getAttribute('mesid'));
+          const text = row.querySelector('.mes_text');
+          if (Number.isFinite(id) && text) rendered[id] = text.innerHTML;
+        });
+        parent.postMessage({ type: 'agent-tavern-rendered-chat', messages: rendered }, '*');
+      }
+      function scheduleRenderedChatPost() {
+        window.clearTimeout(renderedChatTimer);
+        renderedChatTimer = window.setTimeout(postRenderedChat, 30);
+      }
+      const chatObserver = new MutationObserver(scheduleRenderedChatPost);
+      window.addEventListener('DOMContentLoaded', function() {
+        const chat = document.getElementById('chat');
+        if (chat) chatObserver.observe(chat, { childList: true, subtree: true, attributes: true, characterData: true });
+      });
+      window.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'agent-tavern-context') {
+          renderAgentTavernChat(event.data.context || {});
+        }
+      });
+      window.addEventListener('error', function(event) {
+        parent.postMessage({ type: 'agent-tavern-plugin-error', message: event.message }, '*');
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        parent.postMessage({ type: 'agent-tavern-plugin-error', message: String(event.reason && event.reason.message || event.reason) }, '*');
+      });
+    </script>
+    <script type="module">
+      (async function() {
+        try {
+          await import('/st-public/scripts/extensions/third-party/ST-Prompt-Template/dist/index.js');
+          await import('/st-public/scripts/extensions/third-party/JS-Slash-Runner/dist/index.js');
+          window.__agentTavernPluginsReady = true;
+          window.__agentTavernSchedulePluginRenderPass?.();
+        } catch (error) {
+          parent.postMessage({ type: 'agent-tavern-plugin-error', message: String(error && error.message || error) }, '*');
+        }
+      })();
+    </script>
+  </body>
+</html>`,
+    [],
+  );
+
+  function sendContext() {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "agent-tavern-context", context: pluginContext },
+      "*",
+    );
+  }
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.type === "agent-tavern-request-context") {
+        sendContext();
+      }
+      if (event.data?.type === "agent-tavern-plugin-error") {
+        console.warn("Tavern plugin host error:", event.data.message);
+      }
+      if (event.data?.type === "agent-tavern-rendered-chat") {
+        props.onRenderedMessages(event.data.messages ?? {});
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [pluginContext, props.onRenderedMessages]);
+
+  useEffect(() => {
+    sendContext();
+  }, [pluginContext]);
+
+  return (
+    <div className={open ? "plugin-host open" : "plugin-host"}>
+      <button
+        type="button"
+        className="plugin-host-toggle"
+        onClick={() => setOpen((value) => !value)}
+      >
+        酒馆助手
+      </button>
+      <iframe
+        ref={iframeRef}
+        title="酒馆助手插件宿主"
+        sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+        srcDoc={srcDoc}
+        onLoad={sendContext}
+      />
+    </div>
+  );
+}
+
+function buildPluginContext(
+  snapshot: ConversationSnapshot | null,
+  overview: Overview,
+  userName: string,
+) {
+  const character = snapshot?.character;
+  const user = userName || "User";
+  const charName = character?.name ?? "Character";
+  const characterIndex = character
+    ? overview.characters.findIndex((item) => item.id === character.id)
+    : -1;
+
+  return {
+    currentChatId: snapshot?.config.id ?? "",
+    this_chid: characterIndex >= 0 ? String(characterIndex) : null,
+    agentTavernCharacterId: character?.id ?? null,
+    name1: user,
+    name2: charName,
+    characters: overview.characters.map((item) => ({
+      id: item.id,
+      name: item.name,
+      avatar: item.id,
+      description: item.description,
+      personality: item.personality,
+      scenario: item.scenario,
+      first_mes: item.firstMessage,
+      mes_example: item.messageExamples,
+      data: {
+        name: item.name,
+        description: item.description,
+        personality: item.personality,
+        scenario: item.scenario,
+        first_mes: item.firstMessage,
+        alternate_greetings: item.alternateGreetings,
+        mes_example: item.messageExamples,
+        system_prompt: item.systemPrompt,
+        post_history_instructions: item.postHistoryInstructions,
+        creator_notes: item.creatorNotes,
+        creator: item.creator,
+        character_version: item.characterVersion,
+        tags: item.tags,
+        extensions: item.extensions,
+      },
+    })),
+    chat: (snapshot?.messages ?? []).map((message, index) => ({
+      id: index,
+      name: message.role === "assistant" ? charName : user,
+      is_user: message.role === "user",
+      is_system: message.role === "system",
+      mes: message.content,
+      swipe_id: 0,
+      swipes: [message.content],
+      variables: [{}],
+      swipe_info: [{ role: message.role }],
+      is_ejs_processed: [],
+      send_date: message.timestamp,
+      extra: { role: message.role },
+    })),
+    chat_metadata: snapshot?.state.variables ?? {},
+    world_names: overview.lorebooks.map((lorebook) => lorebook.name),
+    world_info: Object.fromEntries(
+      overview.lorebooks.map((lorebook) => [
+        lorebook.name,
+        {
+          name: lorebook.name,
+          entries: Object.fromEntries(
+            lorebook.entries.map((entry) => [
+              entry.uid,
+              {
+                uid: entry.uid,
+                key: entry.keys,
+                keysecondary: entry.secondaryKeys,
+                comment: entry.title,
+                content: entry.content,
+                disable: !entry.enabled,
+                constant: entry.constant,
+                selective: entry.selective,
+                selectiveLogic: entry.selectiveLogic,
+                addMemo: false,
+                order: entry.insertionOrder,
+                position: entry.position,
+                excludeRecursion: entry.excludeRecursion,
+                preventRecursion: entry.preventRecursion,
+                delayUntilRecursion: entry.delayUntilRecursion,
+                probability: entry.probability,
+                useProbability: entry.useProbability,
+                depth: entry.depth ?? lorebook.scanDepth ?? 4,
+                group: entry.group,
+                groupOverride: false,
+                groupWeight: entry.groupWeight,
+                scanDepth: entry.scanDepth ?? lorebook.scanDepth ?? null,
+                caseSensitive: entry.caseSensitive ?? null,
+                matchWholeWords: entry.matchWholeWords ?? null,
+                useGroupScoring: null,
+                vectorized: false,
+                sticky: 0,
+                cooldown: 0,
+                delay: 0,
+                displayIndex: entry.priority,
+                automationId: "",
+                role: null,
+                matchPersonaDescription: false,
+                matchCharacterDescription: true,
+                matchCharacterPersonality: true,
+                matchCharacterDepthPrompt: true,
+                matchScenario: true,
+                matchCreatorNotes: false,
+                ignoreBudget: false,
+                characterFilter: { isExclude: false, names: [], tags: [] },
+                characterFilterNames: [],
+                characterFilterTags: [],
+                characterFilterExclude: false,
+                extensions: entry.extensions,
+              },
+            ]),
+          ),
+        },
+      ]),
+    ),
+  };
 }
 
 function SettingsPanel(props: {
@@ -2183,7 +2654,16 @@ function DropOverlay(props: {
   );
 }
 
-function MessageContent(props: { text: string }) {
+function MessageContent(props: { text: string; pluginHtml?: string }) {
+  if (props.pluginHtml && props.pluginHtml.trim().length > 0) {
+    return (
+      <div
+        className="message-content plugin-rendered"
+        dangerouslySetInnerHTML={{ __html: props.pluginHtml }}
+      />
+    );
+  }
+
   return <div className="message-content">{renderMessageBlocks(props.text)}</div>;
 }
 
