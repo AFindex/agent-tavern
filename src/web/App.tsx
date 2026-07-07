@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { ChangeEvent, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
 
 import { DEFAULT_SETTINGS, PROVIDER_PRESETS, getProviderPreset } from "../settings/defaults";
 import type {
@@ -44,7 +44,7 @@ import {
   type ConversationSnapshot,
   type Overview,
 } from "./api";
-import { readImportFile } from "./card-file";
+import { isPngFile, readImportFile } from "./card-file";
 
 type BusyKey =
   | "boot"
@@ -88,6 +88,7 @@ export function App() {
   const [lorebookDrafts, setLorebookDrafts] = useState<Record<string, Lorebook>>({});
   const [expandedLorebooks, setExpandedLorebooks] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [globalDragActive, setGlobalDragActive] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeConversationId = snapshot?.config.id ?? "";
@@ -96,6 +97,32 @@ export function App() {
 
   useEffect(() => {
     void refresh("boot");
+  }, []);
+
+  useEffect(() => {
+    function handleDragEnter(event: DragEvent) {
+      event.preventDefault();
+      setGlobalDragActive(true);
+    }
+
+    function handleDragOver(event: DragEvent) {
+      event.preventDefault();
+    }
+
+    function handleDrop(event: DragEvent) {
+      event.preventDefault();
+      setGlobalDragActive(false);
+    }
+
+    document.addEventListener("dragenter", handleDragEnter);
+    document.addEventListener("dragover", handleDragOver);
+    document.addEventListener("drop", handleDrop);
+
+    return () => {
+      document.removeEventListener("dragenter", handleDragEnter);
+      document.removeEventListener("dragover", handleDragOver);
+      document.removeEventListener("drop", handleDrop);
+    };
   }, []);
 
   useEffect(() => {
@@ -234,12 +261,41 @@ export function App() {
     );
   }
 
+
+  async function handleGlobalDrop(event: {
+    preventDefault: () => void;
+    dataTransfer: DataTransfer | null;
+  }) {
+    event.preventDefault();
+    setGlobalDragActive(false);
+
+    const file = event.dataTransfer?.files[0] ?? null;
+    if (!file) return;
+
+    if (isPngFile(file)) {
+      await handleFileImport("character", file);
+      return;
+    }
+
+    if (file.name.toLowerCase().endsWith(".json")) {
+      await handleFileImport("lorebook", file);
+      return;
+    }
+
+    setError("仅支持 PNG 角色卡或 JSON 世界书文件");
+  }
+
   async function openConversation(id: string) {
     await runTask("refresh", async () => {
       const nextSnapshot = await fetchConversation(id);
       setSnapshot(nextSnapshot);
       setLastMatchedLore(nextSnapshot.matchedLoreEntries);
     });
+  }
+
+  function handleSelectCharacter(characterId: string) {
+    setNewCharacterId(characterId);
+    setShowCreateForm(true);
   }
 
   async function handleUpdateState() {
@@ -501,118 +557,149 @@ export function App() {
           </div>
         </header>
 
-        {showCreateForm && (
-          <form className="create-form" onSubmit={handleCreateConversation}>
-            <div className="create-form-head">
-              <span>新建会话</span>
-              <button
-                className="icon-button ghost"
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-              >
-                <X size={13} />
-              </button>
-            </div>
-            <label className="field">
-              <span>标题</span>
-              <input
-                value={newConversationTitle}
-                onChange={(event) => setNewConversationTitle(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>角色</span>
-              <select
-                value={newCharacterId}
-                onChange={(event) => setNewCharacterId(event.target.value)}
-              >
-                {overview.characters.map((character) => (
-                  <option key={character.id} value={character.id}>
-                    {character.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="check-list compact">
-              {overview.lorebooks.map((lorebook) => (
-                <label key={lorebook.id} className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={newLorebookIds.includes(lorebook.id)}
-                    onChange={(event) => {
-                      setNewLorebookIds((ids) =>
-                        event.target.checked
-                          ? [...ids, lorebook.id]
-                          : ids.filter((id) => id !== lorebook.id),
-                      );
-                    }}
-                  />
-                  <span>{lorebook.name}</span>
-                </label>
-              ))}
-              {overview.lorebooks.length === 0 && (
-                <div className="empty subtle">暂无世界书</div>
-              )}
-            </div>
-            <button
-              className="primary-button"
-              type="submit"
-              disabled={busy !== null || !newCharacterId}
-            >
-              {busy === "create" ? <Loader2 size={13} /> : <MessageSquare size={13} />}
-              创建会话
-            </button>
-          </form>
-        )}
-
-        <div className="search-row">
-          <Search size={13} />
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="搜索会话或角色"
-          />
-        </div>
-
-        <div className="conversation-tree">
-          {Array.from(filteredGroups.entries()).map(([name, conversations]) => {
-            const expanded = expandedGroups.has(name) || searchQuery.trim().length > 0;
-            return (
-              <div key={name} className="group">
+        <div className="left-panel-body">
+          {showCreateForm && (
+            <form className="create-form" onSubmit={handleCreateConversation}>
+              <div className="create-form-head">
+                <span>新建会话</span>
                 <button
-                  className="group-header"
+                  className="icon-button ghost"
                   type="button"
-                  onClick={() => toggleGroup(name)}
+                  onClick={() => setShowCreateForm(false)}
                 >
-                  {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <span>{name}</span>
-                  <small>{conversations.length}</small>
+                  <X size={13} />
                 </button>
-                {expanded && (
-                  <div className="group-items">
-                    {conversations.map((conversation) => (
-                      <button
-                        key={conversation.id}
-                        className={
-                          conversation.id === activeConversationId
-                            ? "conversation-item active"
-                            : "conversation-item"
-                        }
-                        type="button"
-                        onClick={() => void openConversation(conversation.id)}
-                      >
-                        <span>{conversation.title}</span>
-                        <small>{formatDate(conversation.updatedAt)}</small>
-                      </button>
-                    ))}
-                  </div>
+              </div>
+              <label className="field">
+                <span>标题</span>
+                <input
+                  value={newConversationTitle}
+                  onChange={(event) => setNewConversationTitle(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>角色</span>
+                <select
+                  value={newCharacterId}
+                  onChange={(event) => setNewCharacterId(event.target.value)}
+                >
+                  {overview.characters.map((character) => (
+                    <option key={character.id} value={character.id}>
+                      {character.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="check-list compact">
+                {overview.lorebooks.map((lorebook) => (
+                  <label key={lorebook.id} className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={newLorebookIds.includes(lorebook.id)}
+                      onChange={(event) => {
+                        setNewLorebookIds((ids) =>
+                          event.target.checked
+                            ? [...ids, lorebook.id]
+                            : ids.filter((id) => id !== lorebook.id),
+                        );
+                      }}
+                    />
+                    <span>{lorebook.name}</span>
+                  </label>
+                ))}
+                {overview.lorebooks.length === 0 && (
+                  <div className="empty subtle">暂无世界书</div>
                 )}
               </div>
-            );
-          })}
-          {filteredGroups.size === 0 && (
-            <div className="empty">未找到会话</div>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={busy !== null || !newCharacterId}
+              >
+                {busy === "create" ? <Loader2 size={13} /> : <MessageSquare size={13} />}
+                创建会话
+              </button>
+            </form>
           )}
+
+          <div className="search-row">
+            <Search size={13} />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索会话或角色"
+            />
+          </div>
+
+          <div className="character-list">
+            <div className="character-list-head">
+              <span>角色</span>
+              <small>{overview.characters.length}</small>
+            </div>
+            {overview.characters.length === 0 ? (
+              <div className="empty subtle">拖入 PNG 角色卡导入</div>
+            ) : (
+              <div className="character-items">
+                {overview.characters.map((character) => (
+                  <button
+                    key={character.id}
+                    className={
+                      character.id === newCharacterId
+                        ? "character-item active"
+                        : "character-item"
+                    }
+                    type="button"
+                    title={character.name}
+                    onClick={() => handleSelectCharacter(character.id)}
+                  >
+                    <UserRound size={13} />
+                    <span>{character.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="conversation-tree">
+            {Array.from(filteredGroups.entries()).map(([name, conversations]) => {
+              const expanded = expandedGroups.has(name) || searchQuery.trim().length > 0;
+              return (
+                <div key={name} className="group">
+                  <button
+                    className="group-header"
+                    type="button"
+                    onClick={() => toggleGroup(name)}
+                  >
+                    {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    <span>{name}</span>
+                    <small>{conversations.length}</small>
+                  </button>
+                  {expanded && (
+                    <div className="group-items">
+                      {conversations.map((conversation) => (
+                        <button
+                          key={conversation.id}
+                          className={
+                            conversation.id === activeConversationId
+                              ? "conversation-item active"
+                              : "conversation-item"
+                          }
+                          type="button"
+                          onClick={() => void openConversation(conversation.id)}
+                        >
+                          <span>{conversation.title}</span>
+                          <small>{formatDate(conversation.updatedAt)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filteredGroups.size === 0 && (
+              <div className="empty">未找到会话</div>
+            )}
+          </div>
         </div>
 
         <div className="panel-footer">
@@ -962,6 +1049,12 @@ export function App() {
           busy={busy === "update-settings"}
         />
       )}
+
+      <DropOverlay
+        active={globalDragActive}
+        onDrop={handleGlobalDrop}
+        onLeave={() => setGlobalDragActive(false)}
+      />
     </div>
   );
 }
@@ -1783,6 +1876,40 @@ function FileImporter(props: {
         }}
       />
     </button>
+  );
+}
+
+function DropOverlay(props: {
+  active: boolean;
+  onDrop: (event: ReactDragEvent<HTMLDivElement>) => void;
+  onLeave: () => void;
+}) {
+  if (!props.active) return null;
+
+  return (
+    <div
+      className="drop-overlay"
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={props.onLeave}
+      onDrop={props.onDrop}
+    >
+      <div className="drop-overlay-content">
+        <Upload size={48} strokeWidth={1.5} />
+        <p>拖入文件导入</p>
+        <div className="drop-zones">
+          <div className="drop-zone">
+            <UserRound size={28} />
+            <span>角色卡</span>
+            <small>PNG</small>
+          </div>
+          <div className="drop-zone">
+            <BookOpen size={28} />
+            <span>世界书</span>
+            <small>JSON</small>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

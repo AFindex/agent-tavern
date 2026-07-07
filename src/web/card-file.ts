@@ -35,7 +35,7 @@ async function readPngCharacterCard(file: File): Promise<unknown> {
   throw new Error(`${file.name} does not contain a SillyTavern chara chunk.`);
 }
 
-function isPngFile(file: File): boolean {
+export function isPngFile(file: File): boolean {
   return file.type === "image/png" || file.name.toLowerCase().endsWith(".png");
 }
 
