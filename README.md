@@ -64,6 +64,10 @@ npm run conversation:new -- <character-id> [lorebook-id...]
 npm run send -- <conversation-id> "Your message here"
 ```
 
+The UI character importer accepts SillyTavern JSON cards and PNG character
+cards. If a card contains an embedded `character_book`, it is imported as a
+regular lorebook alongside the character.
+
 ## Runtime Shape
 
 One user message runs this pipeline:

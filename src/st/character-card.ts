@@ -1,6 +1,7 @@
-import type { CharacterProfile, JsonValue } from "../types.js";
+import type { CharacterProfile, JsonValue, Lorebook } from "../types.js";
 import { isRecord, readString, toJsonValue } from "../lib/json.js";
 import { nowIso, stableId } from "../lib/ids.js";
+import { normalizeLorebook } from "./lorebook.js";
 
 export function normalizeCharacterCard(
   raw: unknown,
@@ -37,4 +38,28 @@ export function normalizeCharacterCard(
       importedAt: nowIso(),
     },
   };
+}
+
+export function normalizeEmbeddedCharacterBook(
+  raw: unknown,
+  sourcePath?: string,
+): Lorebook | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const data = isRecord(raw.data) ? raw.data : raw;
+  if (!isRecord(data.character_book)) {
+    return null;
+  }
+
+  const book = { ...data.character_book };
+  if (readString(book.name).length === 0) {
+    book.name = `${readString(data.name, "Character")} Lorebook`;
+  }
+
+  return normalizeLorebook(
+    book,
+    sourcePath ? `${sourcePath}#character_book` : undefined,
+  );
 }

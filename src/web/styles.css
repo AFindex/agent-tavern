@@ -176,6 +176,12 @@ input:disabled {
   color: var(--text);
 }
 
+.tool-button.drop-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-2);
+}
+
 .icon-button {
   width: 26px;
   height: 26px;

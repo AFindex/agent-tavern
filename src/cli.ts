@@ -4,7 +4,10 @@ import { cwd, exit } from "node:process";
 import { MockModelClient } from "./agent/model.js";
 import { AgentRuntime } from "./agent/pipeline.js";
 import { readJsonFile } from "./lib/json.js";
-import { normalizeCharacterCard } from "./st/character-card.js";
+import {
+  normalizeCharacterCard,
+  normalizeEmbeddedCharacterBook,
+} from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 
@@ -75,13 +78,16 @@ async function runDemo(): Promise<void> {
 
 async function importCharacter(filePath: string): Promise<void> {
   const absolutePath = path.resolve(cwd(), filePath);
-  const character = normalizeCharacterCard(
-    await readJsonFile(absolutePath),
-    absolutePath,
-  );
+  const raw = await readJsonFile(absolutePath);
+  const character = normalizeCharacterCard(raw, absolutePath);
+  const lorebook = normalizeEmbeddedCharacterBook(raw, absolutePath);
 
   await store.saveCharacter(character);
   console.log(`Imported character ${character.name}: ${character.id}`);
+  if (lorebook) {
+    await store.saveLorebook(lorebook);
+    console.log(`Imported embedded lorebook ${lorebook.name}: ${lorebook.id}`);
+  }
 }
 
 async function importLorebook(filePath: string): Promise<void> {

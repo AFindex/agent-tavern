@@ -44,6 +44,7 @@ import {
   type ConversationSnapshot,
   type Overview,
 } from "./api";
+import { readImportFile } from "./card-file";
 
 type BusyKey =
   | "boot"
@@ -223,7 +224,7 @@ export function App() {
     await runTask(
       kind === "character" ? "import-character" : "import-lorebook",
       async () => {
-        const raw = JSON.parse(await file.text()) as unknown;
+        const raw = await readImportFile(file, kind);
         const response =
           kind === "character"
             ? await importCharacter(raw, file.name)
@@ -465,7 +466,7 @@ export function App() {
             <FileImporter
               label="角色"
               icon={<UserRound size={13} />}
-              accept=".json,application/json"
+              accept=".json,.png,application/json,image/png"
               busy={busy === "import-character"}
               onFile={(file) => void handleFileImport("character", file)}
             />
@@ -1746,12 +1747,28 @@ function FileImporter(props: {
   onFile: (file: File | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   return (
     <button
-      className="tool-button"
+      className={dragActive ? "tool-button drop-active" : "tool-button"}
       type="button"
+      disabled={props.busy}
       onClick={() => inputRef.current?.click()}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        props.onFile(event.dataTransfer.files[0] ?? null);
+      }}
     >
       {props.busy ? <Loader2 size={13} /> : props.icon}
       {props.label}

@@ -47,7 +47,11 @@ export async function fetchConversation(
 export async function importCharacter(
   raw: unknown,
   sourceName: string,
-): Promise<{ character: CharacterProfile; overview: Overview }> {
+): Promise<{
+  character: CharacterProfile;
+  lorebook?: Lorebook | null;
+  overview: Overview;
+}> {
   return request("/api/import/character", {
     method: "POST",
     body: JSON.stringify({ raw, sourceName }),

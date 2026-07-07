@@ -7,7 +7,10 @@ import { RuntimeModelClient } from "./agent/model.js";
 import { nowIso } from "./lib/ids.js";
 import { readJsonFile } from "./lib/json.js";
 import { normalizeSettings } from "./settings/defaults.js";
-import { normalizeCharacterCard } from "./st/character-card.js";
+import {
+  normalizeCharacterCard,
+  normalizeEmbeddedCharacterBook,
+} from "./st/character-card.js";
 import { normalizeLorebook } from "./st/lorebook.js";
 import { WorkspaceStore } from "./storage/workspace.js";
 import type {
@@ -162,8 +165,16 @@ async function route(
   if (request.method === "POST" && url.pathname === "/api/import/character") {
     const body = await readBody<ImportBody>(request);
     const character = normalizeCharacterCard(body.raw, body.sourceName);
+    const lorebook = normalizeEmbeddedCharacterBook(body.raw, body.sourceName);
     await store.saveCharacter(character);
-    sendJson(response, 200, { character, overview: await loadOverview() });
+    if (lorebook) {
+      await store.saveLorebook(lorebook);
+    }
+    sendJson(response, 200, {
+      character,
+      lorebook,
+      overview: await loadOverview(),
+    });
     return;
   }
 
