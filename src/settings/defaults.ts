@@ -66,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
       model: "deepseek-v4-flash",
       temperature: 1,
       topP: 1,
+      maxTokens: 1_000_000,
       responseFormat: "text",
       stream: false,
       includeUsage: true,

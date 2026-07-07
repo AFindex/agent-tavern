@@ -23,6 +23,7 @@ import type {
   Lorebook,
   LorebookEntry,
   Settings,
+  TokenUsage,
 } from "./types.js";
 
 interface ConversationSnapshot {
@@ -33,6 +34,7 @@ interface ConversationSnapshot {
   character: CharacterProfile;
   lorebooks: Lorebook[];
   matchedLoreEntries: LorebookEntry[];
+  tokenUsage?: TokenUsage;
   workspacePath: string;
 }
 
@@ -337,8 +339,47 @@ async function loadSnapshot(conversationId: string): Promise<ConversationSnapsho
     character,
     lorebooks,
     matchedLoreEntries: resolveMatchedLoreEntries(allEvents, lorebooks),
+    tokenUsage: resolveLatestTokenUsage(allEvents),
     workspacePath: store.conversationDir(conversationId),
   };
+}
+
+function resolveLatestTokenUsage(
+  events: ConversationEvent[],
+): TokenUsage | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (
+      event.type !== "assistant_output" ||
+      typeof event.payload !== "object" ||
+      event.payload === null
+    ) {
+      continue;
+    }
+
+    const payload = event.payload as Record<string, unknown>;
+    const usage = payload.tokenUsage;
+    if (
+      typeof usage !== "object" ||
+      usage === null
+    ) {
+      continue;
+    }
+
+    const usageRecord = usage as Record<string, unknown>;
+    const promptTokens = Number(usageRecord.promptTokens);
+    const completionTokens = Number(usageRecord.completionTokens);
+    const totalTokens = Number(usageRecord.totalTokens);
+    if (
+      Number.isFinite(promptTokens) &&
+      Number.isFinite(completionTokens) &&
+      Number.isFinite(totalTokens)
+    ) {
+      return { promptTokens, completionTokens, totalTokens };
+    }
+  }
+
+  return undefined;
 }
 
 async function runDemoTurn(): Promise<{

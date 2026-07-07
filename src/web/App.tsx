@@ -728,7 +728,17 @@ export function App() {
         <header className="chat-head">
           <div className="chat-head-main">
             <strong>{snapshot?.character.name ?? "未选择角色"}</strong>
-            <span>{snapshot?.config.title ?? "未选择会话"}</span>
+            <span>
+              {snapshot?.config.title ?? "未选择会话"}
+              {snapshot?.tokenUsage && (
+                <>
+                  {" · "}
+                  提示 {formatTokens(snapshot.tokenUsage.promptTokens)} / 输出{" "}
+                  {formatTokens(snapshot.tokenUsage.completionTokens)} / 总计{" "}
+                  {formatTokens(snapshot.tokenUsage.totalTokens)}
+                </>
+              )}
+            </span>
           </div>
           {snapshot && (
             <div className="model-switcher">
@@ -1949,4 +1959,11 @@ function formatDate(value: string): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}K`;
+  }
+  return String(value);
 }

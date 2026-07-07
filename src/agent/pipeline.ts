@@ -70,8 +70,16 @@ export class AgentRuntime {
       ? draft.content
       : fallbackOutput(character.name, validation);
 
+
     await this.store.appendEvent(input.conversationId, "assistant_output", {
       content: output,
+      tokenUsage: draft.usage
+        ? {
+            promptTokens: draft.usage.promptTokens,
+            completionTokens: draft.usage.completionTokens,
+            totalTokens: draft.usage.totalTokens,
+          }
+        : undefined,
     });
 
     const nextState = updateState(
@@ -97,6 +105,7 @@ export class AgentRuntime {
       output,
       matchedLoreEntries: loreEntries,
       validation,
+      tokenUsage: draft.usage,
     };
   }
 }

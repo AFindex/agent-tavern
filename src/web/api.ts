@@ -25,6 +25,11 @@ export interface ConversationSnapshot {
   character: CharacterProfile;
   lorebooks: Lorebook[];
   matchedLoreEntries: LorebookEntry[];
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   workspacePath: string;
 }
 

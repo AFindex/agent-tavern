@@ -174,9 +174,18 @@ export interface ValidationResult {
   issues: string[];
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface AgentTurnResult {
   conversationId: string;
   output: string;
   matchedLoreEntries: LorebookEntry[];
   validation: ValidationResult;
+  tokenUsage?: TokenUsage;
 }
+
+

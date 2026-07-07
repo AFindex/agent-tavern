@@ -23,6 +23,11 @@ export interface ModelRequest {
 
 export interface ModelResponse {
   content: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export interface ModelClient {
@@ -44,13 +49,21 @@ interface ChatCompletionChoice {
   };
 }
 
+interface ChatCompletionUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 interface ChatCompletionResponse {
   choices?: ChatCompletionChoice[];
+  usage?: ChatCompletionUsage;
   error?: {
     message?: string;
     type?: string;
   };
 }
+
 
 export class MockModelClient implements ModelClient {
   async generate(request: ModelRequest): Promise<ModelResponse> {
@@ -155,6 +168,23 @@ async function generateOpenAICompatible(
     throw new Error(`${provider} returned an empty response.`);
   }
 
+  const usage = json?.usage;
+  if (
+    usage &&
+    typeof usage.prompt_tokens === "number" &&
+    typeof usage.completion_tokens === "number" &&
+    typeof usage.total_tokens === "number"
+  ) {
+    return {
+      content,
+      usage: {
+        promptTokens: usage.prompt_tokens,
+        completionTokens: usage.completion_tokens,
+        totalTokens: usage.total_tokens,
+      },
+    };
+  }
+
   return { content };
 }
 
@@ -208,13 +238,12 @@ function buildChatBody(
     return body;
   }
 
-  // Only send max_tokens when the user explicitly sets a positive value.
-  // This avoids provider-side caps on context/output windows and lets the
-  // upstream API use its own default (e.g. DeepSeek supports up to 1M
-  // context when max_tokens is not artificially constrained).
-  if (providerConfig.maxTokens && providerConfig.maxTokens > 0) {
-    body.max_tokens = providerConfig.maxTokens;
-  }
+  // Default max_tokens to 1M and cap user input at 1M so providers like
+  // DeepSeek can be asked for long context/output windows without the
+  // runtime silently constraining them.
+  const ONE_MILLION_TOKENS = 1_000_000;
+  const configuredMaxTokens = providerConfig.maxTokens ?? ONE_MILLION_TOKENS;
+  body.max_tokens = Math.max(1, Math.min(configuredMaxTokens, ONE_MILLION_TOKENS));
 
   if (provider === "deepseek") {
     body.thinking = { type: providerConfig.thinking ?? "enabled" };
