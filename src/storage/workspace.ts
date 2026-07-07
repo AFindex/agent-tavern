@@ -403,6 +403,7 @@ function normalizeStoredLorebook(value: Partial<Lorebook>): Lorebook {
           outletName: entry.outletName,
           probability: entry.probability ?? 100,
           useProbability: entry.useProbability ?? false,
+          vectorized: entry.vectorized ?? false,
           group: entry.group ?? "",
           groupWeight: entry.groupWeight ?? 100,
           excludeRecursion: entry.excludeRecursion ?? false,

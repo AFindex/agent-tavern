@@ -91,6 +91,20 @@ The runtime now handles the parts of ST assets that matter most during chat:
 - Chat rendering: the local UI safely renders common Markdown and a small safe
   HTML subset for chat messages, including emphasis, lists, quotes, code, links,
   images, spoilers, and line breaks.
+- SillyTavern-style chat skinning: visible chat messages expose common ST DOM
+  classes and attributes such as `#chat`, `.mes`, `.mesAvatarWrapper`,
+  `.mes_block`, `.mes_text`, `.name_text`, `.timestamp`, `mesid`, `swipeid`,
+  `ch_name`, `is_user`, and `is_system`. The default local skin mirrors common
+  ST beautification rules for avatars, user/character message tinting, name
+  colors, quote/dialogue `<q>` highlighting, emphasis, underline, blockquotes,
+  tables, code, images, `details > summary`, and common custom block tags such
+  as `<maintext>` / `<Status_block>`.
+- Custom CSS and theme variables: the settings panel has toggles for local
+  message beautification and avatar visibility, plus a Custom CSS field that is
+  injected into both the main app and the plugin iframe. A common subset of
+  `--SmartTheme*`, font, translucent color, and avatar variables is mapped to
+  Agent Tavern colors, so ST-style CSS snippets can usually target the same
+  selectors.
 - Direct plugin loading: the local UI exposes a sandboxed "酒馆助手" host. It
   loads the real Prompt Template / 提示词模板 bundle from
   `zonde306/ST-Prompt-Template` first, then the real JS-Slash-Runner / Tavern
@@ -112,6 +126,9 @@ Still missing for direct plugin parity:
 - Vector storage matching, full STscript automation, timed effects, Quick Reply
   automation, full Author's Note/depth prompt behavior, and complete Tavern
   Helper JS-Slash-Runner runtime parity remain incomplete.
+- Full SillyTavern theme JSON import/export, background image management,
+  chat-width/blur sliders, per-persona avatar management, and the complete ST
+  theme editor are not implemented yet.
 
 ## Runtime Shape
 

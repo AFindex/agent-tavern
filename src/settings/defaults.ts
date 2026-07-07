@@ -130,6 +130,11 @@ export const DEFAULT_SETTINGS: Settings = {
     redactApiKeys: true,
     defaultConversationTitle: "Conversation",
   },
+  appearance: {
+    customCss: "",
+    tavernMessageStyle: true,
+    showAvatars: true,
+  },
 };
 
 export function createDefaultSettings(): Settings {
@@ -162,6 +167,10 @@ export function normalizeSettings(value: unknown): Settings {
     workspace: {
       ...defaults.workspace,
       ...readRecord(incoming.workspace),
+    },
+    appearance: {
+      ...defaults.appearance,
+      ...readRecord(incoming.appearance),
     },
   };
 }

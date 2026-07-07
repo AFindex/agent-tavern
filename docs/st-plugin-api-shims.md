@@ -15,6 +15,32 @@ still needs a real Agent Tavern integration.
 
 ## Implemented Enough For Runtime Loading
 
+- Main chat DOM and Custom CSS
+  - Implemented: the visible Agent Tavern chat now also exposes SillyTavern-like
+    message classes and attributes: `#chat`, `.mes`, `.mes_block`,
+    `.mesAvatarWrapper`, `.avatar`, `.ch_name`, `.name_text`, `.timestamp`,
+    `.mes_text`, `.mes_bias`, `.mes_img_container`, `.swipes-counter`, `mesid`,
+    `swipeid`, `ch_name`, `is_user`, `is_system`, `type`, and `timestamp`.
+  - Implemented: common message state classes are mirrored on the visible chat
+    and the iframe host: `.first_mes`, `.first_char_mes`, `.last_mes`,
+    `.last_user_mes`, `.last_char_mes`, `.lastInContext`, `.user_mes`,
+    `.char_mes`, `.system_mes`, and `.smallSysMes`.
+  - Implemented: a scoped SillyTavern-like message skin is enabled by default,
+    including avatar layout, user/character message tinting, name colors,
+    quote/dialogue `<q>` coloring, emphasis/underline/blockquote/table/code
+    rules, `details > summary` styling, and block display defaults for common
+    custom tags such as `<maintext>` and `<Status_block>`.
+  - Implemented: the settings panel has toggles for the local message skin and
+    avatar visibility. Custom CSS is still injected after these defaults and can
+    override them.
+  - Implemented: `settings.appearance.customCss` is injected into the main app
+    and bridged into the plugin iframe, so user CSS can target the same
+    ST-style selectors on both surfaces.
+  - Implemented: common `--SmartTheme*`, `--mainFont*`, avatar, and ST
+    translucent color variables are mapped to Agent Tavern theme colors.
+  - Fallback: Agent Tavern does not implement SillyTavern's full theme editor,
+    background image picker, chat-width slider, blur slider, or per-persona
+    avatar manager yet. Default avatars come from the proxied ST public assets.
 - `lib.js`
   - Implemented: `initLibraryShims`, `lodash`/`_`, `DOMPurify`, `hljs`, `yaml`,
     and `moment` fallbacks. The iframe host also attempts to load real lodash
@@ -104,6 +130,11 @@ stubbed:
 - Main Agent Tavern chat bubbles do not parse Prompt Template or Tavern Helper
   custom tags on their own. They display HTML mirrored back from the
   iframe-hosted plugin DOM after the real plugins mutate `.mes_text`.
+- Custom CSS is injected as-is. It is intended for local trusted CSS snippets;
+  there is no CSS sandbox or selector validation yet.
+- Full SillyTavern theme JSON import/export is not implemented yet. Only Custom
+  CSS, local message-skin toggles, and a common subset of ST CSS variables are
+  supported.
 - Character deletion, hotswap, persona image management, and thumbnail
   generation.
 - Full World Info prompt manager behavior, context-budget enforcement, timed

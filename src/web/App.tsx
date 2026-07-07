@@ -75,6 +75,7 @@ export function App() {
   const [lastMatchedLore, setLastMatchedLore] = useState<LorebookEntry[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showLorebookPanel, setShowLorebookPanel] = useState(false);
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
   const [settingsDraft, setSettingsDraft] = useState<SettingsType>(DEFAULT_SETTINGS);
   const [quickModelDraft, setQuickModelDraft] = useState("");
@@ -90,6 +91,7 @@ export function App() {
   const [streamingThinking, setStreamingThinking] = useState<string | null>(null);
   const [lorebookDrafts, setLorebookDrafts] = useState<Record<string, Lorebook>>({});
   const [expandedLorebooks, setExpandedLorebooks] = useState<Set<string>>(new Set());
+  const [expandedLoreEntries, setExpandedLoreEntries] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [globalDragActive, setGlobalDragActive] = useState(false);
   const [pluginRenderedMessages, setPluginRenderedMessages] = useState<Record<number, string>>({});
@@ -98,6 +100,19 @@ export function App() {
   const activeConversationId = snapshot?.config.id ?? "";
   const activeCharacterId = snapshot?.config.characterId ?? "";
   const activeLoreIds = snapshot?.config.lorebookIds ?? [];
+  const hasStreamingMessage =
+    streamingContent !== null || streamingThinking !== null;
+  const messageStates = useMemo(
+    () => buildTavernMessageStates(snapshot?.messages ?? [], hasStreamingMessage),
+    [snapshot?.messages, hasStreamingMessage],
+  );
+  const appClassName = [
+    "app-shell",
+    settings.appearance.tavernMessageStyle
+      ? "tavern-message-style"
+      : "native-message-style",
+    settings.appearance.showAvatars ? "show-avatars" : "hide-avatars",
+  ].join(" ");
 
   useEffect(() => {
     void refresh("boot");
@@ -540,8 +555,23 @@ export function App() {
     });
   }
 
+  function loreEntryKey(lorebookId: string, entryId: string) {
+    return `${lorebookId}:${entryId}`;
+  }
+
+  function toggleLoreEntryExpand(lorebookId: string, entryId: string) {
+    const key = loreEntryKey(lorebookId, entryId);
+    setExpandedLoreEntries((set) => {
+      const next = new Set(set);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
-    <div className="app-shell">
+    <div className={appClassName}>
+      <TavernCustomCss css={settings.appearance.customCss} />
       <aside className="left-panel">
         <header className="panel-header">
           <div className="brand">
@@ -831,35 +861,50 @@ export function App() {
           )}
         </header>
 
+        <div className="chat-toolbar">
+          <button
+            className="chat-toolbar-button"
+            type="button"
+            onClick={() => setShowLorebookPanel(true)}
+            disabled={!snapshot}
+            title="世界书"
+          >
+            <BookOpen size={14} />
+            世界书
+          </button>
+        </div>
+
         {error && <div className="error-line">{error}</div>}
 
-        <div className="messages" ref={scrollRef}>
+        <div id="chat" className="messages" ref={scrollRef}>
           {snapshot?.messages.map((messageItem, index) => (
-            <div
+            <ChatMessageView
               key={`${messageItem.timestamp}-${index}`}
-              className={`message ${messageItem.role}`}
-            >
-              <div className="message-inner">
-                <span className="role">{roleLabel(messageItem.role)}</span>
-                <MessageContent
-                  text={messageItem.content}
-                  pluginHtml={pluginRenderedMessages[index]}
-                />
-                <small className="time">{formatTime(messageItem.timestamp)}</small>
-              </div>
-            </div>
+              role={messageItem.role}
+              content={messageItem.content}
+              index={index}
+              speakerName={speakerNameForRole(
+                messageItem.role,
+                settings.agent.userName,
+                snapshot.character.name,
+              )}
+              timeLabel={formatTime(messageItem.timestamp)}
+              pluginHtml={pluginRenderedMessages[index]}
+              state={messageStates[index] ?? EMPTY_TAVERN_MESSAGE_STATE}
+            />
           ))}
           {(streamingContent !== null || streamingThinking !== null) && (
-            <div className="message assistant streaming">
-              <div className="message-inner">
-                <span className="role">{roleLabel("assistant")}</span>
-                {streamingThinking && streamingThinking.length > 0 && (
-                  <div className="thinking-stream">{streamingThinking}</div>
-                )}
-                <MessageContent text={streamingContent ?? ""} />
-                <small className="time">生成中…</small>
-              </div>
-            </div>
+            <ChatMessageView
+              role="assistant"
+              content={streamingContent ?? ""}
+              index={snapshot?.messages.length ?? 0}
+              speakerName={snapshot?.character.name ?? roleLabel("assistant")}
+              timeLabel="生成中…"
+              thinking={streamingThinking ?? undefined}
+              state={buildStreamingTavernMessageState(
+                snapshot?.messages.length ?? 0,
+              )}
+            />
           )}
           {!snapshot && (
             <div className="empty center">
@@ -953,262 +998,6 @@ export function App() {
             </div>
           )}
         </div>
-
-        <div className="panel-section fill">
-          <div className="section-title">
-            <span>世界书</span>
-          </div>
-          {!snapshot ? (
-            <div className="empty subtle">未选择会话</div>
-          ) : (
-            <div className="lorebook-panel">
-              {overview.lorebooks.map((lorebook) => {
-                const active = activeLoreIds.includes(lorebook.id);
-                const expanded = expandedLorebooks.has(lorebook.id);
-                const draft = lorebookDrafts[lorebook.id] ?? lorebook;
-                const dirty = JSON.stringify(draft.entries) !== JSON.stringify(lorebook.entries);
-
-                return (
-                  <div
-                    key={lorebook.id}
-                    className={active ? "lorebook active" : "lorebook"}
-                  >
-                    <div className="lorebook-header">
-                      <button
-                        className="expand-button"
-                        type="button"
-                        onClick={() => toggleLorebookExpand(lorebook.id)}
-                      >
-                        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      </button>
-                      <span className="lorebook-name">{lorebook.name}</span>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={active}
-                          onChange={() => void handleToggleLorebook(lorebook.id)}
-                          disabled={busy !== null}
-                        />
-                        <span className="switch-track" />
-                      </label>
-                    </div>
-                    {expanded && (
-                      <div className="lorebook-entries">
-                        {draft.entries.map((entry) => {
-                          const hit = matchedLore.some((m) => m.id === entry.id);
-                          return (
-                            <div
-                              key={entry.id}
-                              className={hit ? "lore-entry hit" : "lore-entry"}
-                            >
-                              <div className="lore-entry-header">
-                                <input
-                                  className="lore-title-input"
-                                  value={entry.title}
-                                  onChange={(event) =>
-                                    updateLorebookEntry(lorebook.id, entry.id, {
-                                      title: event.target.value,
-                                    })
-                                  }
-                                  placeholder="条目标题"
-                                />
-                                <small>uid {entry.uid}</small>
-                              </div>
-                              <div className="lore-entry-controls">
-                                <label className="toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={entry.enabled}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        enabled: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span>启用</span>
-                                </label>
-                                <label className="toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={entry.constant}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        constant: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span>恒定</span>
-                                </label>
-                                <label className="toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={entry.selective}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        selective: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span>过滤</span>
-                                </label>
-                                <label className="toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={entry.caseSensitive ?? false}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        caseSensitive: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span>大小写</span>
-                                </label>
-                                <label className="toggle">
-                                  <input
-                                    type="checkbox"
-                                    checked={entry.matchWholeWords ?? true}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        matchWholeWords: event.target.checked,
-                                      })
-                                    }
-                                  />
-                                  <span>整词</span>
-                                </label>
-                                <label className="priority">
-                                  <span>逻辑</span>
-                                  <select
-                                    value={entry.selectiveLogic ?? "and_any"}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        selectiveLogic: event.target.value as LorebookEntry["selectiveLogic"],
-                                      })
-                                    }
-                                  >
-                                    <option value="and_any">AND ANY</option>
-                                    <option value="and_all">AND ALL</option>
-                                    <option value="not_any">NOT ANY</option>
-                                    <option value="not_all">NOT ALL</option>
-                                  </select>
-                                </label>
-                                <label className="priority">
-                                  <span>优先级</span>
-                                  <input
-                                    type="number"
-                                    value={entry.priority}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        priority: Number(event.target.value),
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="priority">
-                                  <span>概率</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    value={entry.probability ?? 100}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        probability: Number(event.target.value),
-                                        useProbability: Number(event.target.value) < 100,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="priority">
-                                  <span>位置</span>
-                                  <select
-                                    value={entry.position ?? "after_char"}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        position: event.target.value as LorebookEntry["position"],
-                                      })
-                                    }
-                                  >
-                                    <option value="before_char">角色前</option>
-                                    <option value="after_char">角色后</option>
-                                    <option value="before_example">例句前</option>
-                                    <option value="after_example">例句后</option>
-                                    <option value="top_an">AN 顶部</option>
-                                    <option value="bottom_an">AN 底部</option>
-                                    <option value="at_depth">@Depth</option>
-                                    <option value="outlet">Outlet</option>
-                                  </select>
-                                </label>
-                              </div>
-                              <div className="lore-key-grid">
-                                <label>
-                                  <span>主 Keys</span>
-                                  <textarea
-                                    className="lore-key-input"
-                                    value={formatKeyList(entry.keys)}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        keys: parseKeyList(event.target.value),
-                                      })
-                                    }
-                                    rows={2}
-                                    placeholder="每行一个 key，支持 /regex/flags"
-                                  />
-                                </label>
-                                <label>
-                                  <span>过滤 Keys</span>
-                                  <textarea
-                                    className="lore-key-input"
-                                    value={formatKeyList(entry.secondaryKeys)}
-                                    onChange={(event) =>
-                                      updateLorebookEntry(lorebook.id, entry.id, {
-                                        secondaryKeys: parseKeyList(event.target.value),
-                                      })
-                                    }
-                                    rows={2}
-                                    placeholder="selective 启用时使用"
-                                  />
-                                </label>
-                              </div>
-                              <textarea
-                                className="lore-content"
-                                value={entry.content}
-                                onChange={(event) =>
-                                  updateLorebookEntry(lorebook.id, entry.id, {
-                                    content: event.target.value,
-                                  })
-                                }
-                                rows={2}
-                                placeholder="条目内容"
-                              />
-                            </div>
-                          );
-                        })}
-                        {dirty && (
-                          <button
-                            className="primary-button small"
-                            type="button"
-                            onClick={() => void handleSaveLorebook(lorebook.id)}
-                            disabled={busy !== null}
-                          >
-                            {busy === "update-lorebook" ? (
-                              <Loader2 size={12} />
-                            ) : (
-                              <Save size={12} />
-                            )}
-                            保存世界书
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {overview.lorebooks.length === 0 && (
-                <div className="empty subtle">暂无世界书</div>
-              )}
-            </div>
-          )}
-        </div>
       </aside>
 
       {showSettings && (
@@ -1221,6 +1010,412 @@ export function App() {
         />
       )}
 
+      {showLorebookPanel && (
+        <div
+          className="lorebook-overlay"
+          onClick={() => setShowLorebookPanel(false)}
+        >
+          <div
+            className="lorebook-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="lorebook-modal-head">
+              <span>世界书</span>
+              <button
+                className="icon-button ghost"
+                type="button"
+                onClick={() => setShowLorebookPanel(false)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="lorebook-modal-body">
+              {!snapshot ? (
+                <div className="empty subtle">未选择会话</div>
+              ) : (
+                <div className="lorebook-panel">
+                  {overview.lorebooks.map((lorebook) => {
+                    const active = activeLoreIds.includes(lorebook.id);
+                    const expanded = expandedLorebooks.has(lorebook.id);
+                    const draft = lorebookDrafts[lorebook.id] ?? lorebook;
+                    const dirty = JSON.stringify(draft.entries) !== JSON.stringify(lorebook.entries);
+
+                    return (
+                      <div
+                        key={lorebook.id}
+                        className={active ? "lorebook active" : "lorebook"}
+                      >
+                        <div className="lorebook-header">
+                          <button
+                            className="expand-button"
+                            type="button"
+                            onClick={() => toggleLorebookExpand(lorebook.id)}
+                          >
+                            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          </button>
+                          <span className="lorebook-name">{lorebook.name}</span>
+                          <label className="switch">
+                            <input
+                              type="checkbox"
+                              checked={active}
+                              onChange={() => void handleToggleLorebook(lorebook.id)}
+                              disabled={busy !== null}
+                            />
+                            <span className="switch-track" />
+                          </label>
+                        </div>
+                        {expanded && (
+                          <div className="lorebook-entries">
+                            {draft.entries.map((entry) => {
+                              const hit = matchedLore.some((m) => m.id === entry.id);
+                              const entryExpanded = expandedLoreEntries.has(
+                                loreEntryKey(lorebook.id, entry.id),
+                              );
+                              const logicLabel: Record<string, string> = {
+                                and_any: "AND ANY",
+                                and_all: "AND ALL",
+                                not_any: "NOT ANY",
+                                not_all: "NOT ALL",
+                              };
+                              return (
+                                <div
+                                  key={entry.id}
+                                  className={`lore-entry ${hit ? "hit" : ""} ${entryExpanded ? "expanded" : ""}`}
+                                >
+                                  <div
+                                    className="lore-entry-row"
+                                    onClick={() => toggleLoreEntryExpand(lorebook.id, entry.id)}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="expand-button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleLoreEntryExpand(lorebook.id, entry.id);
+                                      }}
+                                      title={entryExpanded ? "收起" : "展开"}
+                                    >
+                                      {entryExpanded ? (
+                                        <ChevronDown size={14} />
+                                      ) : (
+                                        <ChevronRight size={14} />
+                                      )}
+                                    </button>
+                                    <label
+                                      className="toggle"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={entry.enabled}
+                                        onChange={(event) =>
+                                          updateLorebookEntry(lorebook.id, entry.id, {
+                                            enabled: event.target.checked,
+                                          })
+                                        }
+                                      />
+                                      <span>启用</span>
+                                    </label>
+                                    <span className="lore-entry-title" title={entry.title}>
+                                      {entry.title || <em>无标题</em>}
+                                    </span>
+                                    {entry.vectorized && (
+                                      <span className="lore-entry-badge vectorized">向量化</span>
+                                    )}
+                                    {entry.constant && (
+                                      <span className="lore-entry-badge permanent">永久</span>
+                                    )}
+                                    {entry.keys.length > 0 && (
+                                      <span className="lore-entry-badge keywords">
+                                        关键词 {entry.keys.length}
+                                      </span>
+                                    )}
+                                    <span className="lore-entry-badge">
+                                      {logicLabel[entry.selectiveLogic ?? "and_any"]}
+                                    </span>
+                                    <label
+                                      className="priority"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <input
+                                        type="number"
+                                        value={entry.priority}
+                                        onChange={(event) =>
+                                          updateLorebookEntry(lorebook.id, entry.id, {
+                                            priority: Number(event.target.value),
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label
+                                      className="priority"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        value={entry.probability ?? 100}
+                                        onChange={(event) =>
+                                          updateLorebookEntry(lorebook.id, entry.id, {
+                                            probability: Number(event.target.value),
+                                            useProbability: Number(event.target.value) < 100,
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label
+                                      className="priority"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <select
+                                        value={entry.position ?? "after_char"}
+                                        onChange={(event) =>
+                                          updateLorebookEntry(lorebook.id, entry.id, {
+                                            position: event.target.value as LorebookEntry["position"],
+                                          })
+                                        }
+                                      >
+                                        <option value="before_char">角色前</option>
+                                        <option value="after_char">角色后</option>
+                                        <option value="before_example">例句前</option>
+                                        <option value="after_example">例句后</option>
+                                        <option value="top_an">AN 顶部</option>
+                                        <option value="bottom_an">AN 底部</option>
+                                        <option value="at_depth">@Depth</option>
+                                        <option value="outlet">Outlet</option>
+                                      </select>
+                                    </label>
+                                    {hit && <span className="lore-hit-badge">命中</span>}
+                                  </div>
+                                  {entryExpanded && (
+                                    <div className="lore-entry-body">
+                                      <div className="lore-entry-header">
+                                        <input
+                                          className="lore-title-input"
+                                          value={entry.title}
+                                          onChange={(event) =>
+                                            updateLorebookEntry(lorebook.id, entry.id, {
+                                              title: event.target.value,
+                                            })
+                                          }
+                                          placeholder="条目标题"
+                                        />
+                                        <small>uid {entry.uid}</small>
+                                      </div>
+                                      <div className="lore-entry-controls">
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.enabled}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                enabled: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>启用</span>
+                                        </label>
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.constant}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                constant: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>恒定</span>
+                                        </label>
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.selective}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                selective: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>过滤</span>
+                                        </label>
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.caseSensitive ?? false}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                caseSensitive: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>大小写</span>
+                                        </label>
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.matchWholeWords ?? true}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                matchWholeWords: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>整词</span>
+                                        </label>
+                                        <label className="toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.vectorized ?? false}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                vectorized: event.target.checked,
+                                              })
+                                            }
+                                          />
+                                          <span>向量化</span>
+                                        </label>
+                                        <label className="priority">
+                                          <span>逻辑</span>
+                                          <select
+                                            value={entry.selectiveLogic ?? "and_any"}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                selectiveLogic: event.target.value as LorebookEntry["selectiveLogic"],
+                                              })
+                                            }
+                                          >
+                                            <option value="and_any">AND ANY</option>
+                                            <option value="and_all">AND ALL</option>
+                                            <option value="not_any">NOT ANY</option>
+                                            <option value="not_all">NOT ALL</option>
+                                          </select>
+                                        </label>
+                                        <label className="priority">
+                                          <span>优先级</span>
+                                          <input
+                                            type="number"
+                                            value={entry.priority}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                priority: Number(event.target.value),
+                                              })
+                                            }
+                                          />
+                                        </label>
+                                        <label className="priority">
+                                          <span>概率</span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            value={entry.probability ?? 100}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                probability: Number(event.target.value),
+                                                useProbability: Number(event.target.value) < 100,
+                                              })
+                                            }
+                                          />
+                                        </label>
+                                        <label className="priority">
+                                          <span>位置</span>
+                                          <select
+                                            value={entry.position ?? "after_char"}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                position: event.target.value as LorebookEntry["position"],
+                                              })
+                                            }
+                                          >
+                                            <option value="before_char">角色前</option>
+                                            <option value="after_char">角色后</option>
+                                            <option value="before_example">例句前</option>
+                                            <option value="after_example">例句后</option>
+                                            <option value="top_an">AN 顶部</option>
+                                            <option value="bottom_an">AN 底部</option>
+                                            <option value="at_depth">@Depth</option>
+                                            <option value="outlet">Outlet</option>
+                                          </select>
+                                        </label>
+                                      </div>
+                                      <div className="lore-key-grid">
+                                        <label>
+                                          <span>主 Keys</span>
+                                          <textarea
+                                            className="lore-key-input"
+                                            value={formatKeyList(entry.keys)}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                keys: parseKeyList(event.target.value),
+                                              })
+                                            }
+                                            rows={2}
+                                            placeholder="每行一个 key，支持 /regex/flags"
+                                          />
+                                        </label>
+                                        <label>
+                                          <span>过滤 Keys</span>
+                                          <textarea
+                                            className="lore-key-input"
+                                            value={formatKeyList(entry.secondaryKeys)}
+                                            onChange={(event) =>
+                                              updateLorebookEntry(lorebook.id, entry.id, {
+                                                secondaryKeys: parseKeyList(event.target.value),
+                                              })
+                                            }
+                                            rows={2}
+                                            placeholder="selective 启用时使用"
+                                          />
+                                        </label>
+                                      </div>
+                                      <textarea
+                                        className="lore-content"
+                                        value={entry.content}
+                                        onChange={(event) =>
+                                          updateLorebookEntry(lorebook.id, entry.id, {
+                                            content: event.target.value,
+                                          })
+                                        }
+                                        rows={2}
+                                        placeholder="条目内容"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {dirty && (
+                              <button
+                                className="primary-button small"
+                                type="button"
+                                onClick={() => void handleSaveLorebook(lorebook.id)}
+                                disabled={busy !== null}
+                              >
+                                {busy === "update-lorebook" ? (
+                                  <Loader2 size={12} />
+                                ) : (
+                                  <Save size={12} />
+                                )}
+                                保存世界书
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {overview.lorebooks.length === 0 && (
+                    <div className="empty subtle">暂无世界书</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <DropOverlay
         active={globalDragActive}
         onDrop={handleGlobalDrop}
@@ -1230,23 +1425,45 @@ export function App() {
         snapshot={snapshot}
         overview={overview}
         userName={settings.agent.userName}
+        customCss={settings.appearance.customCss}
+        appearance={settings.appearance}
         onRenderedMessages={setPluginRenderedMessages}
       />
     </div>
   );
 }
 
+function TavernCustomCss(props: { css: string }) {
+  if (props.css.trim().length === 0) return null;
+  return <style data-st-custom-css>{props.css}</style>;
+}
+
 function TavernPluginHost(props: {
   snapshot: ConversationSnapshot | null;
   overview: Overview;
   userName: string;
+  customCss: string;
+  appearance: SettingsType["appearance"];
   onRenderedMessages: (messages: Record<number, string>) => void;
 }) {
   const [open, setOpen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pluginContext = useMemo(
-    () => buildPluginContext(props.snapshot, props.overview, props.userName),
-    [props.snapshot, props.overview, props.userName],
+    () =>
+      buildPluginContext(
+        props.snapshot,
+        props.overview,
+        props.userName,
+        props.customCss,
+        props.appearance,
+      ),
+    [
+      props.snapshot,
+      props.overview,
+      props.userName,
+      props.customCss,
+      props.appearance,
+    ],
   );
   const srcDoc = useMemo(
     () => `<!doctype html>
@@ -1258,21 +1475,61 @@ function TavernPluginHost(props: {
     <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <style>
-      html, body { margin: 0; min-height: 100%; background: #111316; color: #e7e1d4; font: 13px system-ui, sans-serif; }
+      :root {
+        --SmartThemeBodyColor: #e7e1d4;
+        --SmartThemeEmColor: #d4a065;
+        --SmartThemeUnderlineColor: #bce7cf;
+        --SmartThemeQuoteColor: #e19a4a;
+        --SmartThemeBlurTintColor: #15151c;
+        --SmartThemeChatTintColor: #101015;
+        --SmartThemeUserMesBlurTintColor: rgba(184, 138, 82, 0.13);
+        --SmartThemeBotMesBlurTintColor: rgba(111, 184, 160, 0.09);
+        --SmartThemeBlurStrength: 8px;
+        --SmartThemeBorderColor: #2a2d33;
+        --SmartThemeShadowColor: rgba(0, 0, 0, 0.35);
+        --mainFontSize: 13px;
+        --mainFontFamily: system-ui, sans-serif;
+        --avatar-base-width: 34px;
+        --avatar-base-height: 34px;
+        --avatar-base-border-radius: 4px;
+        --avatar-base-border-radius-round: 50%;
+        --black30a: rgba(0, 0, 0, 0.3);
+      }
+      html, body { margin: 0; min-height: 100%; background: #111316; color: var(--SmartThemeBodyColor); font: var(--mainFontSize) var(--mainFontFamily); }
       body { padding: 10px; }
       #agent-tavern-plugin-root { min-height: 100%; }
       .agent-tavern-host-note { color: #9d988d; font-size: 12px; margin-bottom: 8px; }
-      #chat { display: grid; gap: 8px; }
-      .mes { padding: 8px; border: 1px solid #2a2d33; border-radius: 6px; background: #171a1f; }
-      .mes[is_user="true"] { background: #2a2419; }
-      .mes_head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: #c9b47a; font-size: 11px; font-weight: 700; }
-      .avatar { width: 18px; height: 18px; border-radius: 50%; overflow: hidden; background: #2a2d33; }
+      #chat { display: grid; gap: 0; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px; overflow: hidden; background: var(--SmartThemeChatTintColor); }
+      .mes { display: flex; align-items: flex-start; width: 100%; position: relative; padding: 10px; color: var(--SmartThemeBodyColor); border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 70%, transparent); }
+      .mes:last-child { border-bottom: 0; }
+      .mes[is_user="true"] { background: var(--SmartThemeUserMesBlurTintColor); }
+      .mes[is_user="false"][is_system="false"] { background: var(--SmartThemeBotMesBlurTintColor); }
+      .smallSysMes { opacity: 0.85; }
+      .mesAvatarWrapper { display: none; flex: 0 0 var(--avatar-base-width); width: var(--avatar-base-width); margin-right: 10px; text-align: center; }
+      body.show-avatars .mesAvatarWrapper { display: block; }
+      .avatar { width: var(--avatar-base-width); height: var(--avatar-base-height); border-radius: var(--avatar-base-border-radius-round); overflow: hidden; background: #2a2d33; }
       .avatar img { width: 100%; height: 100%; object-fit: cover; }
+      .mes_block { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+      .ch_name { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-weight: 700; color: #c9b47a; }
       .name_text { display: inline; }
       .mesIDDisplay, .tokenCounterDisplay, .swipes-counter { color: #80796b; font-size: 10px; font-weight: 500; }
-      .mes_text { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .timestamp { color: #80796b; font-size: 10px; font-weight: 500; }
+      .mes_text { line-height: 1.75; white-space: normal; overflow-wrap: anywhere; }
+      .mes_text p { margin: 0 0 10px; }
+      .mes_text em, .mes_text i { color: var(--SmartThemeEmColor); }
+      .mes_text u { color: var(--SmartThemeUnderlineColor); }
+      .mes q:before, .mes q:after { content: ''; }
+      .mes_text q { color: var(--SmartThemeQuoteColor); }
+      .mes_text blockquote { margin: 0; padding: 4px 0 4px 10px; border-left: 3px solid var(--SmartThemeQuoteColor); background: var(--black30a); color: var(--SmartThemeBodyColor); }
+      .mes_text table { max-width: 100%; border-spacing: 0; border-collapse: collapse; }
+      .mes_text td, .mes_text th { padding: 3px 5px; border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 22%, transparent); }
+      .mes_text pre code { display: block; overflow-x: auto; padding: 1em; background: var(--black30a); }
+      .mes_text img:not(.mes_img) { max-width: 100%; max-height: 70vh; }
       .mes_text details { margin: 6px 0; }
       .mes_text summary { cursor: pointer; font-weight: 700; }
+      .for_checkbox, .del_checkbox, .swipe_left, .swipe_right, .mes_buttons, .mes_edit_buttons, .mes_img_container, .mes_ghost { display: none; }
+      .mes_bias { color: var(--SmartThemeQuoteColor); font-size: 12px; }
+      .last_mes .mes_text { padding-right: 30px; }
       #extensions_settings:empty { display: none; }
       .agent-tavern-hidden-st-controls { display: none; }
     </style>
@@ -1289,6 +1546,7 @@ function TavernPluginHost(props: {
     <div id="chat"></div>
     <div id="extensions_settings"></div>
     <div id="agent-tavern-plugin-root"></div>
+    <style id="agent-tavern-custom-css"></style>
     <script>
       window.__agentTavernPluginHost = true;
       window.__agentTavernLatestContext = {};
@@ -1394,8 +1652,17 @@ function TavernPluginHost(props: {
         const tick = String.fromCharCode(96);
         const fence = new RegExp(tick + '{3}([^\\\\n' + tick + ']*)\\\\n?([\\\\s\\\\S]*?)' + tick + '{3}', 'g');
         let match;
+        function wrapDialogueQuotes(part) {
+          const sentinel = String.fromCharCode(65534);
+          const protectedTags = String(part).replace(/<[^>]+>/g, function(tag) {
+            return tag.replace(/"/g, sentinel);
+          });
+          return protectedTags
+            .replace(/"([^"\\n]{1,240})"|“([^”\\n]{1,240})”/g, function(hit) { return '<q>' + hit + '</q>'; })
+            .replaceAll(sentinel, '"');
+        }
         function inline(part) {
-          return String(part)
+          return wrapDialogueQuotes(String(part)
             .replaceAll('&', '&amp;')
             .replaceAll('<%', '&lt;%')
             .replaceAll('%>', '%&gt;')
@@ -1403,7 +1670,7 @@ function TavernPluginHost(props: {
             .replace(/\\*([^*\\n]+?)\\*/g, '<em>$1</em>')
             .replace(/~~([\\s\\S]+?)~~/g, '<s>$1</s>')
             .replace(/\\|\\|([\\s\\S]+?)\\|\\|/g, '<span class="spoiler">$1</span>')
-            .replace(/\\n/g, '<br>');
+            .replace(/\\n/g, '<br>'));
         }
         while ((match = fence.exec(text))) {
           if (match.index > last) html += inline(text.slice(last, match.index));
@@ -1415,42 +1682,119 @@ function TavernPluginHost(props: {
       }
       function renderAgentTavernChat(context) {
         window.__agentTavernLatestContext = context || {};
+        const appearance = context.appearance || {};
+        document.body.classList.toggle('tavern-message-style', appearance.tavern_message_style !== false);
+        document.body.classList.toggle('native-message-style', appearance.tavern_message_style === false);
+        document.body.classList.toggle('show-avatars', appearance.show_avatars !== false);
+        document.body.classList.toggle('hide-avatars', appearance.show_avatars === false);
+        const customStyle = document.getElementById('agent-tavern-custom-css');
+        if (customStyle) customStyle.textContent = context.custom_css || '';
         const chat = document.getElementById('chat');
         if (!chat) return;
-        chat.replaceChildren(...(context.chat || []).map(function(message, index) {
+        const items = context.chat || [];
+        const firstCharacterIndex = items.findIndex(function(item) { return !item.is_user && !item.is_system; });
+        let lastUserIndex = -1;
+        let lastCharacterIndex = -1;
+        items.forEach(function(item, itemIndex) {
+          if (item.is_user) lastUserIndex = itemIndex;
+          if (!item.is_user && !item.is_system) lastCharacterIndex = itemIndex;
+        });
+        chat.replaceChildren(...items.map(function(message, index) {
+          const role = message.extra && message.extra.role || (message.is_user ? 'user' : message.is_system ? 'system' : 'assistant');
           const row = document.createElement('div');
-          row.className = 'mes';
+          row.className = [
+            'mes',
+            role,
+            message.is_user ? 'user_mes' : message.is_system ? 'system_mes smallSysMes' : 'char_mes',
+            index === 0 ? 'first_mes' : '',
+            index === firstCharacterIndex ? 'first_char_mes' : '',
+            index === items.length - 1 ? 'last_mes' : '',
+            index === lastUserIndex ? 'last_user_mes' : '',
+            index === lastCharacterIndex ? 'last_char_mes' : '',
+            !message.is_system ? 'lastInContext' : '',
+          ].filter(Boolean).join(' ');
           row.id = 'chat-' + index;
           row.setAttribute('mesid', String(index));
+          row.setAttribute('swipeid', String(message.swipe_id || 0));
+          row.setAttribute('ch_name', message.name || '');
           row.setAttribute('is_user', message.is_user ? 'true' : 'false');
           row.setAttribute('is_system', message.is_system ? 'true' : 'false');
-          const head = document.createElement('div');
-          head.className = 'mes_head';
+          row.setAttribute('type', role);
+          row.setAttribute('timestamp', message.send_date || '');
+          row.append(document.createElement('div'));
+          row.firstElementChild.className = 'for_checkbox';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'del_checkbox';
+          checkbox.tabIndex = -1;
+          row.append(checkbox);
+          const avatarWrap = document.createElement('div');
+          avatarWrap.className = 'mesAvatarWrapper';
           const avatar = document.createElement('div');
           avatar.className = 'avatar';
           const img = document.createElement('img');
           img.alt = '';
           img.src = message.is_user ? '/st-public/img/user-default.png' : '/st-public/img/ai4.png';
           avatar.append(img);
-          const nameWrap = document.createElement('span');
-          nameWrap.className = 'ch_name';
-          const name = document.createElement('span');
-          name.className = 'name_text';
-          name.textContent = message.name || '';
-          nameWrap.append(name);
-          const id = document.createElement('span');
+          const id = document.createElement('div');
           id.className = 'mesIDDisplay';
           id.textContent = '#' + index;
-          const token = document.createElement('span');
+          const timer = document.createElement('div');
+          timer.className = 'mes_timer';
+          const token = document.createElement('div');
           token.className = 'tokenCounterDisplay';
-          const swipes = document.createElement('span');
-          swipes.className = 'swipes-counter';
-          head.append(avatar, nameWrap, id, token, swipes);
+          avatarWrap.append(avatar, id, timer, token);
+          const swipeLeft = document.createElement('div');
+          swipeLeft.className = 'swipe_left fa-solid fa-chevron-left';
+          const block = document.createElement('div');
+          block.className = 'mes_block';
+          const head = document.createElement('div');
+          head.className = 'ch_name flex-container justifySpaceBetween';
+          const headLeft = document.createElement('div');
+          headLeft.className = 'flex-container flex1 alignitemscenter';
+          const baseline = document.createElement('div');
+          baseline.className = 'flex-container alignItemsBaseline';
+          const nameWrap = document.createElement('span');
+          nameWrap.className = 'name_text';
+          nameWrap.textContent = message.name || '';
+          const ghost = document.createElement('i');
+          ghost.className = 'mes_ghost fa-solid fa-ghost';
+          const time = document.createElement('small');
+          time.className = 'timestamp';
+          time.textContent = message.send_date || '';
+          baseline.append(nameWrap, ghost, time);
+          headLeft.append(baseline);
+          const buttons = document.createElement('div');
+          buttons.className = 'mes_buttons';
+          const editButtons = document.createElement('div');
+          editButtons.className = 'mes_edit_buttons';
+          head.append(headLeft, buttons, editButtons);
           const text = document.createElement('div');
           text.className = 'mes_text';
           text.dataset.raw = message.mes || '';
           text.innerHTML = formatAgentTavernMessage(message.mes || '');
-          row.append(head, text);
+          const media = document.createElement('div');
+          media.className = 'mes_img_container';
+          const mediaControls = document.createElement('div');
+          mediaControls.className = 'mes_img_controls';
+          const mediaSwipes = document.createElement('div');
+          mediaSwipes.className = 'mes_img_swipes';
+          const mediaCounter = document.createElement('div');
+          mediaCounter.className = 'mes_img_swipe_counter';
+          mediaCounter.textContent = '1/1';
+          mediaSwipes.append(mediaCounter);
+          const mediaImg = document.createElement('img');
+          mediaImg.className = 'mes_img';
+          media.append(mediaControls, mediaSwipes, mediaImg);
+          const bias = document.createElement('div');
+          bias.className = 'mes_bias';
+          block.append(head, text, media, bias);
+          const swipeRight = document.createElement('div');
+          swipeRight.className = 'swipe_right fa-solid fa-chevron-right';
+          const swipeCounter = document.createElement('span');
+          swipeCounter.className = 'swipes-counter';
+          swipeRight.append(swipeCounter);
+          row.append(avatarWrap, swipeLeft, block, swipeRight);
           return row;
         }));
         schedulePluginRenderPass();
@@ -1578,6 +1922,8 @@ function buildPluginContext(
   snapshot: ConversationSnapshot | null,
   overview: Overview,
   userName: string,
+  customCss: string,
+  appearance: SettingsType["appearance"],
 ) {
   const character = snapshot?.character;
   const user = userName || "User";
@@ -1588,6 +1934,11 @@ function buildPluginContext(
 
   return {
     currentChatId: snapshot?.config.id ?? "",
+    custom_css: customCss,
+    appearance: {
+      tavern_message_style: appearance.tavernMessageStyle,
+      show_avatars: appearance.showAvatars,
+    },
     this_chid: characterIndex >= 0 ? String(characterIndex) : null,
     agentTavernCharacterId: character?.id ?? null,
     name1: user,
@@ -1668,7 +2019,7 @@ function buildPluginContext(
                 caseSensitive: entry.caseSensitive ?? null,
                 matchWholeWords: entry.matchWholeWords ?? null,
                 useGroupScoring: null,
-                vectorized: false,
+                vectorized: entry.vectorized ?? false,
                 sticky: 0,
                 cooldown: 0,
                 delay: 0,
@@ -1901,6 +2252,13 @@ function RuntimeSettingsPanel(props: {
     props.onChange({
       ...props.draft,
       workspace: { ...props.draft.workspace, ...patch },
+    });
+  }
+
+  function updateAppearance(patch: Partial<SettingsType["appearance"]>) {
+    props.onChange({
+      ...props.draft,
+      appearance: { ...props.draft.appearance, ...patch },
     });
   }
 
@@ -2400,6 +2758,35 @@ function RuntimeSettingsPanel(props: {
               </label>
             </div>
           </section>
+
+          <section className="settings-section settings-section-full">
+            <div className="section-title">酒馆美化</div>
+            <div className="settings-grid two">
+              <ToggleField
+                label="消息美化"
+                checked={props.draft.appearance.tavernMessageStyle}
+                onChange={(tavernMessageStyle) =>
+                  updateAppearance({ tavernMessageStyle })
+                }
+              />
+              <ToggleField
+                label="显示头像"
+                checked={props.draft.appearance.showAvatars}
+                onChange={(showAvatars) => updateAppearance({ showAvatars })}
+              />
+            </div>
+            <label className="field wide">
+              <span>Custom CSS</span>
+              <textarea
+                className="settings-code-textarea"
+                value={props.draft.appearance.customCss}
+                placeholder=".mes_text { }"
+                onChange={(event) =>
+                  updateAppearance({ customCss: event.target.value })
+                }
+              />
+            </label>
+          </section>
         </div>
 
         <footer className="settings-foot">
@@ -2654,17 +3041,188 @@ function DropOverlay(props: {
   );
 }
 
+interface TavernMessageState {
+  isFirstMessage: boolean;
+  isFirstCharacterMessage: boolean;
+  isLastMessage: boolean;
+  isLastUserMessage: boolean;
+  isLastCharacterMessage: boolean;
+  isInContext: boolean;
+}
+
+const EMPTY_TAVERN_MESSAGE_STATE: TavernMessageState = {
+  isFirstMessage: false,
+  isFirstCharacterMessage: false,
+  isLastMessage: false,
+  isLastUserMessage: false,
+  isLastCharacterMessage: false,
+  isInContext: false,
+};
+
+function buildTavernMessageStates(
+  messages: ConversationSnapshot["messages"],
+  hasStreamingMessage: boolean,
+): TavernMessageState[] {
+  const firstCharacterIndex = messages.findIndex(
+    (message) => message.role === "assistant",
+  );
+  const lastUserIndex = findLastMessageIndex(
+    messages,
+    (message) => message.role === "user",
+  );
+  const lastCharacterIndex = hasStreamingMessage
+    ? -1
+    : findLastMessageIndex(messages, (message) => message.role === "assistant");
+  const lastMessageIndex = hasStreamingMessage ? -1 : messages.length - 1;
+
+  return messages.map((message, index) => {
+    const isSystem = message.role === "system" || message.role === "tool";
+    return {
+      isFirstMessage: index === 0,
+      isFirstCharacterMessage: index === firstCharacterIndex,
+      isLastMessage: index === lastMessageIndex,
+      isLastUserMessage: index === lastUserIndex,
+      isLastCharacterMessage: index === lastCharacterIndex,
+      isInContext: !isSystem,
+    };
+  });
+}
+
+function buildStreamingTavernMessageState(index: number): TavernMessageState {
+  return {
+    isFirstMessage: index === 0,
+    isFirstCharacterMessage: index === 0,
+    isLastMessage: true,
+    isLastUserMessage: false,
+    isLastCharacterMessage: true,
+    isInContext: true,
+  };
+}
+
+function findLastMessageIndex(
+  messages: ConversationSnapshot["messages"],
+  predicate: (message: ConversationSnapshot["messages"][number]) => boolean,
+): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (predicate(messages[index])) return index;
+  }
+  return -1;
+}
+
+function ChatMessageView(props: {
+  role: string;
+  content: string;
+  index: number;
+  speakerName: string;
+  timeLabel: string;
+  state: TavernMessageState;
+  pluginHtml?: string;
+  thinking?: string;
+}) {
+  const isUser = props.role === "user";
+  const isSystem = props.role === "system" || props.role === "tool";
+  const stAttributes: Record<string, string> = {
+    mesid: String(props.index),
+    swipeid: "0",
+    ch_name: props.speakerName,
+    is_user: String(isUser),
+    is_system: String(isSystem),
+    type: props.role,
+    timestamp: props.timeLabel,
+  };
+  const classes = [
+    "message",
+    "mes",
+    props.role,
+    isUser ? "user_mes" : isSystem ? "system_mes smallSysMes" : "char_mes",
+    props.state.isFirstMessage ? "first_mes" : "",
+    props.state.isFirstCharacterMessage ? "first_char_mes" : "",
+    props.state.isLastMessage ? "last_mes" : "",
+    props.state.isLastUserMessage ? "last_user_mes" : "",
+    props.state.isLastCharacterMessage ? "last_char_mes" : "",
+    props.state.isInContext ? "lastInContext" : "",
+    props.thinking ? "streaming" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      {...stAttributes}
+      className={classes}
+      data-message-role={props.role}
+    >
+      <div className="for_checkbox" aria-hidden="true" />
+      <input
+        className="del_checkbox"
+        type="checkbox"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <div className="mesAvatarWrapper" aria-hidden="true">
+        <div className="avatar">
+          <img
+            src={isUser ? "/st-public/img/user-default.png" : "/st-public/img/ai4.png"}
+            alt=""
+          />
+        </div>
+        <div className="mesIDDisplay">#{props.index}</div>
+        <div className="mes_timer" />
+        <div className="tokenCounterDisplay" />
+      </div>
+      <div className="swipe_left fa-solid fa-chevron-left" aria-hidden="true" />
+      <div className="mes_block message-inner">
+        <div className="ch_name flex-container justifySpaceBetween">
+          <div className="flex-container flex1 alignitemscenter">
+            <div className="flex-container alignItemsBaseline">
+              <span className="name_text role">{props.speakerName}</span>
+              <i
+                className="mes_ghost fa-solid fa-ghost"
+                title="This message is invisible for the AI"
+                aria-hidden="true"
+              />
+              <small className="timestamp time">{props.timeLabel}</small>
+            </div>
+          </div>
+          <div className="mes_buttons" aria-hidden="true" />
+          <div className="mes_edit_buttons" aria-hidden="true" />
+        </div>
+        {props.thinking && props.thinking.length > 0 && (
+          <div className="thinking-stream">{props.thinking}</div>
+        )}
+        <MessageContent text={props.content} pluginHtml={props.pluginHtml} />
+        <div className="mes_img_container" aria-hidden="true">
+          <div className="mes_img_controls" />
+          <div className="mes_img_swipes">
+            <div className="mes_img_swipe_counter">1/1</div>
+          </div>
+          <img className="mes_img" src="" alt="" />
+        </div>
+        <div className="mes_bias" />
+      </div>
+      <div className="swipe_right fa-solid fa-chevron-right" aria-hidden="true">
+        <div className="swipes-counter" />
+      </div>
+    </div>
+  );
+}
+
 function MessageContent(props: { text: string; pluginHtml?: string }) {
   if (props.pluginHtml && props.pluginHtml.trim().length > 0) {
     return (
       <div
-        className="message-content plugin-rendered"
+        className="message-content mes_text plugin-rendered"
+        data-raw={props.text}
         dangerouslySetInnerHTML={{ __html: props.pluginHtml }}
       />
     );
   }
 
-  return <div className="message-content">{renderMessageBlocks(props.text)}</div>;
+  return (
+    <div className="message-content mes_text" data-raw={props.text}>
+      {renderMessageBlocks(props.text)}
+    </div>
+  );
 }
 
 function renderMessageBlocks(text: string): ReactNode[] {
@@ -2824,6 +3382,7 @@ function renderInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
     inlinePair(/<u>([\s\S]+?)<\/u>/i, "u"),
     inlinePair(/<s>([\s\S]+?)<\/s>/i, "s"),
     inlinePair(/<del>([\s\S]+?)<\/del>/i, "s"),
+    inlinePair(/<q>([\s\S]+?)<\/q>/i, "q"),
     inlinePair(/\*\*([\s\S]+?)\*\*/, "strong"),
     inlinePair(/__([\s\S]+?)__/, "strong"),
     inlinePair(/~~([\s\S]+?)~~/, "s"),
@@ -2831,6 +3390,12 @@ function renderInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
     {
       pattern: /`([^`\n]+?)`/,
       render: (match, key) => <code key={key}>{match[1]}</code>,
+    },
+    {
+      pattern: /"([^"\n]{1,240})"|“([^”\n]{1,240})”/,
+      render: (match, key) => (
+        <q key={key}>{match[0]}</q>
+      ),
     },
     inlinePair(/\*([^*\n]+?)\*/, "em"),
     inlinePair(/_([^_\n]+?)_/, "em"),
@@ -2871,7 +3436,7 @@ function renderInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
 
 function inlinePair(
   pattern: RegExp,
-  tag: "strong" | "em" | "u" | "s" | "spoiler",
+  tag: "strong" | "em" | "u" | "s" | "q" | "spoiler",
 ): {
   pattern: RegExp;
   render: (match: RegExpExecArray, key: string) => ReactNode;
@@ -2884,6 +3449,7 @@ function inlinePair(
       if (tag === "em") return <em key={key}>{children}</em>;
       if (tag === "u") return <u key={key}>{children}</u>;
       if (tag === "s") return <s key={key}>{children}</s>;
+      if (tag === "q") return <q key={key}>{children}</q>;
       return (
         <span key={key} className="spoiler" tabIndex={0}>
           {children}
@@ -2923,6 +3489,21 @@ function roleLabel(role: string): string {
       return "工具";
     default:
       return role;
+  }
+}
+
+function speakerNameForRole(
+  role: string,
+  userName: string,
+  characterName: string,
+): string {
+  switch (role) {
+    case "user":
+      return userName || "User";
+    case "assistant":
+      return characterName || "Character";
+    default:
+      return roleLabel(role);
   }
 }
 

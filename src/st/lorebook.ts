@@ -232,6 +232,7 @@ function normalizeLorebookEntry(
     outletName: readString(raw.outletName ?? raw.outlet_name),
     probability: normalizeProbability(raw.probability),
     useProbability: readBoolean(raw.useProbability ?? raw.use_probability, false),
+    vectorized: readBoolean(raw.vectorized ?? raw.use_vectorization, false),
     group: readString(raw.group),
     groupWeight: readNumber(raw.groupWeight ?? raw.group_weight, 100),
     excludeRecursion: readBoolean(raw.excludeRecursion ?? raw.exclude_recursion, false),

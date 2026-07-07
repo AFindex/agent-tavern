@@ -85,6 +85,7 @@ interface UpdateSettingsBody {
   generation?: Settings["generation"];
   agent?: Settings["agent"];
   workspace?: Settings["workspace"];
+  appearance?: Settings["appearance"];
 }
 
 const store = new WorkspaceStore(cwd());
@@ -260,6 +261,7 @@ async function route(
       generation: body.generation ?? settings.generation,
       agent: body.agent ?? settings.agent,
       workspace: body.workspace ?? settings.workspace,
+      appearance: body.appearance ?? settings.appearance,
     });
 
     await store.saveSettings(nextSettings);

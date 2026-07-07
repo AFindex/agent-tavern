@@ -69,6 +69,7 @@ export interface LorebookEntry {
   outletName?: string;
   probability: number;
   useProbability: boolean;
+  vectorized?: boolean;
   group: string;
   groupWeight: number;
   excludeRecursion: boolean;
@@ -189,12 +190,19 @@ export interface WorkspaceSettings {
   defaultConversationTitle: string;
 }
 
+export interface AppearanceSettings {
+  customCss: string;
+  tavernMessageStyle: boolean;
+  showAvatars: boolean;
+}
+
 export interface Settings {
   defaultModel: ModelConfig;
   providers: Record<string, ProviderConfig>;
   generation: GenerationSettings;
   agent: AgentSettings;
   workspace: WorkspaceSettings;
+  appearance: AppearanceSettings;
 }
 
 export interface ConversationConfig {
@@ -263,4 +271,3 @@ export interface AgentTurnResult {
   validation: ValidationResult;
   tokenUsage?: TokenUsage;
 }
-
