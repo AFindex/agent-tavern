@@ -2,6 +2,7 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 
 import type {
+  ChatMessage,
   CharacterProfile,
   ConversationConfig,
   ConversationState,
@@ -119,7 +120,68 @@ export class PiRuntime {
     await this.store.saveConversationState(session.conversationId, session.state);
     const config = await this.store.loadConversationConfig(session.conversationId);
     await this.store.saveConversationConfig(config);
+    await this.persistMessages(session);
   }
+
+  private async persistMessages(session: PiConversationSession): Promise<void> {
+    const existingMessages = await this.store.loadRecentMessages(session.conversationId, 1000);
+    const existingKeys = new Set(
+      existingMessages.map((m) => `${m.role}:${m.timestamp}:${m.content}`),
+    );
+
+    for (const message of session.agent.state.messages) {
+      const chatMessage = agentMessageToChatMessage(message);
+      if (!chatMessage) continue;
+      const key = `${chatMessage.role}:${chatMessage.timestamp}:${chatMessage.content}`;
+      if (existingKeys.has(key)) continue;
+
+      if (chatMessage.role === "user") {
+        await this.store.appendEvent(session.conversationId, "user_input", {
+          content: chatMessage.content,
+        });
+      } else if (chatMessage.role === "assistant") {
+        await this.store.appendEvent(session.conversationId, "assistant_output", {
+          content: chatMessage.content,
+        });
+      }
+    }
+  }
+}
+
+function agentMessageToChatMessage(message: AgentMessage): ChatMessage | null {
+  const timestamp = new Date(message.timestamp).toISOString();
+
+  if (message.role === "user") {
+    const content = typeof message.content === "string"
+      ? message.content
+      : extractTextFromContent(message.content);
+    return { role: "user", content, timestamp };
+  }
+
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      content: extractTextFromContent(message.content),
+      timestamp,
+    };
+  }
+
+  return null;
+}
+
+function extractTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && typeof part === "object" && "text" in part) {
+        return String((part as Record<string, unknown>).text ?? "");
+      }
+      return "";
+    })
+    .join("");
 }
 
 function buildSystemPrompt(

@@ -727,6 +727,18 @@ input:disabled {
   color: var(--text-3);
 }
 
+.message .thinking-stream {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  white-space: pre-wrap;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  background: var(--bg-1);
+  border-radius: 6px;
+  border-left: 2px solid var(--accent);
+}
+
 .composer-area {
   border-top: 1px solid var(--border);
   background: var(--panel);

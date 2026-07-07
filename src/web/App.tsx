@@ -87,6 +87,7 @@ export function App() {
     variables: "{}",
   });
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [streamingThinking, setStreamingThinking] = useState<string | null>(null);
   const [lorebookDrafts, setLorebookDrafts] = useState<Record<string, Lorebook>>({});
   const [expandedLorebooks, setExpandedLorebooks] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -232,6 +233,7 @@ export function App() {
     setError(null);
     setMessage("");
     setStreamingContent("");
+    setStreamingThinking("");
 
     try {
       await streamMessage(activeConversationId, trimmed, (event) => {
@@ -242,6 +244,7 @@ export function App() {
         ) {
           const message = event.message as Record<string, unknown> | undefined;
           setStreamingContent(extractTextFromPiMessage(message));
+          setStreamingThinking(extractThinkingFromPiMessage(message));
         } else if (event.type === "done") {
           setOverview(event.overview);
           setSnapshot(event.snapshot);
@@ -255,6 +258,7 @@ export function App() {
     } finally {
       setBusy(null);
       setStreamingContent(null);
+      setStreamingThinking(null);
     }
   }
 
@@ -840,10 +844,13 @@ export function App() {
               </div>
             </div>
           ))}
-          {streamingContent !== null && (
+          {(streamingContent !== null || streamingThinking !== null) && (
             <div className="message assistant streaming">
               <div className="message-inner">
                 <span className="role">{roleLabel("assistant")}</span>
+                {streamingThinking && streamingThinking.length > 0 && (
+                  <div className="thinking-stream">{streamingThinking}</div>
+                )}
                 <p>{streamingContent}</p>
                 <small className="time">生成中…</small>
               </div>
@@ -2001,17 +2008,25 @@ function formatTokens(value: number): string {
 }
 
 function extractTextFromPiMessage(message: unknown): string {
+  return extractPiContent(message, "text");
+}
+
+function extractThinkingFromPiMessage(message: unknown): string {
+  return extractPiContent(message, "thinking");
+}
+
+function extractPiContent(message: unknown, field: "text" | "thinking"): string {
   if (!message || typeof message !== "object") return "";
   const content = (message as Record<string, unknown>).content;
   if (!Array.isArray(content)) {
-    return typeof content === "string" ? content : "";
+    return "";
   }
 
   return content
     .map((part) => {
-      if (typeof part === "string") return part;
-      if (part && typeof part === "object" && "text" in part) {
-        return String((part as Record<string, unknown>).text ?? "");
+      if (typeof part === "string") return "";
+      if (part && typeof part === "object" && field in part) {
+        return String((part as Record<string, unknown>)[field] ?? "");
       }
       return "";
     })

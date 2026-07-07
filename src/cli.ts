@@ -57,11 +57,14 @@ async function runDemo(): Promise<void> {
   await store.saveCharacter(character);
   await store.saveLorebook(lorebook);
 
+  const settings = await store.loadSettings();
   const conversation = await store.createConversation({
     title: "Demo Conversation",
     characterId: character.id,
     lorebookIds: [lorebook.id],
   });
+  conversation.model = settings.defaultModel;
+  await store.saveConversationConfig(conversation);
 
   const success = await piRuntime.runTurn(
     conversation.id,
